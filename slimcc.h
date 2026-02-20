@@ -237,8 +237,86 @@ typedef enum {
   TK_typeof_unqual,
   TK_thread_local,
   TK_volatile,
+  TK_Nameprefix,
+  TK_Capture,
+  TK_Apply,
   TK_TYPEKW_END,
 } TokenKind;
+
+static char *token_kind_str[] =
+{
+  [TK_IDENT] = "TK_IDENT",   // Identifiers
+  [TK_PUNCT] = "TK_PUNCT",   // Punctuators
+  [TK_KEYWORD] = "TK_KEYWORD", // Keywords
+  [TK_STR] = "TK_STR",     // String literals
+  [TK_ASM_STR] = "TK_ASM_STR",
+  [TK_INT_NUM] = "TK_INT_NUM", // Integer Numeric literals
+  [TK_PP_NUM] = "TK_PP_NUM",  // Preprocessing numbers
+  [TK_FMARK] = "TK_FMARK",   // Filemarkers for -E
+  [TK_PMARK] = "TK_PMARK",   // Placermarkers
+  [TK_ATTR] = "TK_ATTR",    // GNU attribute
+  [TK_BATTR] = "TK_BATTR",   // C23 attribute
+  [TK_EOF] = "TK_EOF",     // End-of-file markers
+  [TK_UNICODE] = "TK_UNICODE",
+  
+  [TK_return] = "TK_return",
+  [TK_if] = "TK_if",
+  [TK_else] = "TK_else",
+  [TK_for] = "TK_for",
+  [TK_while] = "TK_while",
+  [TK_do] = "TK_do",
+  [TK_goto] = "TK_goto",
+  [TK_break] = "TK_break",
+  [TK_continue] = "TK_continue",
+  [TK_switch] = "TK_switch",
+  [TK_case] = "TK_case",
+  [TK_default] = "TK_default",
+  [TK_sizeof] = "TK_sizeof",
+  [TK_Generic] = "TK_Generic",
+  [TK_Countof] = "TK_Countof",
+  [TK_alignof] = "TK_alignof",
+  [TK_asm] = "TK_asm",
+  [TK_static_assert] = "TK_static_assert",
+  [TK_true] = "TK_true",
+  [TK_false] = "TK_false",
+  [TK_nullptr] = "TK_nullptr",
+  [TK_defer] = "TK_defer",
+  [TK_FUNCTION] = "TK_FUNCTION",
+  
+  [TK_TYPEKW] = "TK_TYPEKW",
+  [TK_void] = "TK_void",
+  [TK_char] = "TK_char",
+  [TK_short] = "TK_short",
+  [TK_int] = "TK_int",
+  [TK_long] = "TK_long",
+  [TK_float] = "TK_float",
+  [TK_double] = "TK_double",
+  [TK_unsigned] = "TK_unsigned",
+  [TK_struct] = "TK_struct",
+  [TK_union] = "TK_union",
+  [TK_enum] = "TK_enum",
+  [TK_typedef] = "TK_typedef",
+  [TK_static] = "TK_static",
+  [TK_extern] = "TK_extern",
+  [TK_auto] = "TK_auto",
+  [TK_register] = "TK_register",
+  [TK_Atomic] = "TK_Atomic",
+  [TK_Noreturn] = "TK_Noreturn",
+  [TK_BitInt] = "TK_BitInt",
+  [TK_auto_type] = "TK_auto_type",
+  [TK_alignas] = "TK_alignas",
+  [TK_bool] = "TK_bool",
+  [TK_const] = "TK_const",
+  [TK_constexpr] = "TK_constexpr",
+  [TK_inline] = "TK_inline",
+  [TK_restrict] = "TK_restrict",
+  [TK_signed] = "TK_signed",
+  [TK_typeof] = "TK_typeof",
+  [TK_typeof_unqual] = "TK_typeof_unqual",
+  [TK_thread_local] = "TK_thread_local",
+  [TK_volatile] = "TK_volatile",
+  [TK_TYPEKW_END] = "TK_TYPEKW_END",
+};
 
 typedef enum {
   INCL_ABS = -2,

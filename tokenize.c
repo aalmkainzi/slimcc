@@ -240,10 +240,11 @@ static int read_punct(char *p) {
     return (is_repeat && p[2] == *p) ? 3 : 1;
   case '$':
     return opt_cc1_asm_pp;
+  case ':':
+    return is_repeat + 1;
   case '(':
   case ')':
   case ',':
-  case ':':
   case ';':
   case '?':
   case '@':
@@ -375,6 +376,10 @@ TokenKind ident_keyword(Token *tok) {
     hashmap_put(&map, "volatile", (void *)TK_volatile);
     hashmap_put(&map, "__volatile", (void *)TK_volatile);
     hashmap_put(&map, "__volatile__", (void *)TK_volatile);
+    
+    hashmap_put(&map, "_Nameprefix", (void *)TK_Nameprefix);
+    hashmap_put(&map, "_Capture", (void *)TK_Capture);
+    hashmap_put(&map, "_Apply", (void *)TK_Apply);
   }
 
   void *val = hashmap_get2(&map, tok->loc, tok->len);

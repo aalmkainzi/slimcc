@@ -18,6 +18,9 @@
 
 #include "slimcc.h"
 
+#define CGS_SHORT_NAMES
+#include "cgs.h"
+
 // Scope for local variables, global variables, typedefs
 // or enum constants
 typedef struct {
@@ -5652,6 +5655,53 @@ static Token *free_parsed_tok(Token *tok, Token *end) {
   return end;
 }
 
+void expect_tk_kind(Token *tok, TokenKind kind)
+{
+  if(tok->kind != kind)
+  {
+    error_tok(tok, "Expected token %s, but got %s", token_kind_str[kind], token_kind_str[tok->kind]);
+  }
+}
+
+StrView strvtok(Token *tok)
+{
+  StrView v = {.chars = (unsigned char*) tok->loc, .len = tok->len};
+  return v;
+}
+
+enum { NOT_NP, NP_DECL, NP_ALIAS } get_np_kind(Token *tok)
+{
+  if(tok->kind != TK_Nameprefix)
+  {
+    return NOT_NP;
+  }
+  tok = skip(tok, "_Nameprefix");
+  
+  expect_tk_kind(tok, TK_IDENT);
+  tok = tok->next;
+  
+  if(equal(tok, "::"))
+  {
+    return NP_DECL;
+  }
+  
+  tok = skip(tok, "=");
+  if(tok->kind == TK_STR)
+  {
+    return NP_DECL;
+  }
+  else if(tok->kind == TK_IDENT)
+  {
+    return NP_ALIAS;
+  }
+  else
+  {
+    error_tok(tok, "Invalid usage of _Nameprefix");
+    return -1;
+  }
+  
+}
+
 // program = (typedef | function-definition | global-variable)*
 Obj *parse(Token *tok) {
   Obj *glb_head = globals;
@@ -5663,6 +5713,10 @@ Obj *parse(Token *tok) {
 
     if (consume(&tok, tok, ";"))
       continue;
+
+    if (tok->kind == TK_Nameprefix)
+    {
+    }
 
     if (tok->kind == TK_asm) {
       static Type ty = {.kind = TY_ASM};
