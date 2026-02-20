@@ -397,7 +397,7 @@ static Scope *decl_scope(void) {
   return sc;
 }
 
-static Nameprefix *get_np_from_access_starting_from(Nameprefix *starting_from, SViews access, NameprefixEntry **entry_ref)
+static Nameprefix *get_np_from_access_starting_from(Token *tok, Nameprefix *starting_from, SViews access, NameprefixEntry **entry_ref)
 {
   Nameprefix *np = starting_from;
   while(np)
@@ -410,7 +410,7 @@ static Nameprefix *get_np_from_access_starting_from(Nameprefix *starting_from, S
         {
           access.size -= 1;
           access.data += 1;
-          Nameprefix *rest_found = get_np_from_access_starting_from(ent.ref[0], access, entry_ref);
+          Nameprefix *rest_found = get_np_from_access_starting_from(tok, ent.ref[0], access, entry_ref);
           if(rest_found)
           {
             return rest_found;
@@ -452,7 +452,7 @@ static Nameprefix *get_np_from_access_starting_from(Nameprefix *starting_from, S
       {
         access.size -= 1;
         access.data += 1;
-        Nameprefix *rest_found = get_np_from_access_starting_from(ent.ref[0], access, entry_ref);
+        Nameprefix *rest_found = get_np_from_access_starting_from(tok, ent.ref[0], access, entry_ref);
         if(rest_found)
         {
           return rest_found;
@@ -486,23 +486,21 @@ static Nameprefix *get_np_from_access_starting_from(Nameprefix *starting_from, S
   StrViewArray sva = strv_arr_from_carr(access.data, access.size);
   DStr dst = dstr_init();
   cgs_join(&dst, sva, "::");
-  cgs_fprintln(stderr, "_Nameprefix ", dst ," does not exist");
-  dstr_deinit(&dst);
-  exit(1);
+  error_tok(tok, "_Nameprefix %s does not exist", dst.chars);
 }
 
-static Nameprefix *get_np_from_access(SViews access, NameprefixEntry **entry_ref)
+static Nameprefix *get_np_from_access(Token *tok, SViews access, NameprefixEntry **entry_ref)
 {
   if(np_scope_stack != NULL && !np_scope_stack->is_capture)
   {
     Nameprefix *np = np_scope_stack->scope.apply_scope.np;
-    Nameprefix *found = get_np_from_access_starting_from(np, access, entry_ref);
+    Nameprefix *found = get_np_from_access_starting_from(tok, np, access, entry_ref);
     if(found)
       return found;
   }
   else
   {
-    Nameprefix *found = get_np_from_access_starting_from(NULL, access, entry_ref);
+    Nameprefix *found = get_np_from_access_starting_from(tok, NULL, access, entry_ref);
     if(found)
       return found;
   }
@@ -575,7 +573,7 @@ static void *find_ident(Token *tok, Token **after, bool is_tag)
     
     NameprefixEntry arg = {.name = strvtok(tok), .is_tag = is_tag};
     NameprefixEntry *entry = &arg;
-    Nameprefix *np = get_np_from_access(nps_accessed, &entry);
+    Nameprefix *np = get_np_from_access(tok, nps_accessed, &entry);
     
     *after = tok->next;
     
@@ -6315,16 +6313,16 @@ Token *parse_np(Token *tok)
   return tok;
 }
 
-void np_not_exist_error(Nameprefix *in_scope_of, StrView name)
+void np_not_exist_error(Nameprefix *in_scope_of, StrView name, Token *tok)
 {
   if(in_scope_of == NULL)
   {
-    cgs_fprintln(stderr, "_Nameprefix ", name ," doesn't exist");
+    error_tok(tok, "_Nameprefix %s doesn't exist", cgs_dup(name).chars);
   }
   else
   {
     DStr full_name = get_np_full_name(in_scope_of);
-    cgs_fprintln(stderr, "_Nameprefix ", name ," doesn't exist in ", full_name);
+    error_tok(tok, "_Nameprefix %s doesn't exist in %s", cgs_dup(name).chars, full_name.chars);
     cgs_dstr_deinit(&full_name);
   }
   exit(1);
@@ -6341,7 +6339,7 @@ Nameprefix *get_np_by_name(Nameprefix *in_scope_of, Token **tokp)
   
   if(np == NULL)
   {
-    np_not_exist_error(in_scope_of, np_name);
+    np_not_exist_error(in_scope_of, np_name, tok);
   }
   
   while(cgs_equal(strvtok(tok), "::"))
@@ -6355,7 +6353,7 @@ Nameprefix *get_np_by_name(Nameprefix *in_scope_of, Token **tokp)
     
     if(child == NULL)
     {
-      np_not_exist_error(np, child_name);
+      np_not_exist_error(np, child_name, tok);
     }
     
     np = child;
@@ -6382,8 +6380,7 @@ Token *parse_np_scope(Token *tok)
   }
   else
   {
-    cgs_fprintln(stderr, "Expected either _Capture or _Apply, got ", scope_kind);
-    exit(1);
+    error_tok(tok, "Expected either _Capture or _Apply, got %s", cgs_dup(scope_kind).chars);
   }
   
   tok = skip(tok, "_Nameprefix");

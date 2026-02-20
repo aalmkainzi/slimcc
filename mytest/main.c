@@ -13,5 +13,5 @@ _Apply _Nameprefix B
 
 int main()
 {
-    return A::A + B::F;
+    return C::D::A + B::F;
 }
