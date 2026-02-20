@@ -1,4 +1,4 @@
-SRCS=alloc.c bitint.c codegen.c hashmap.c main.c parse.c platform.c preprocess.c strings.c tokenize.c type.c unicode.c
+SRCS=alloc.c bitint.c codegen.c hashmap.c main.c parse.c platform.c preprocess.c strings.c tokenize.c type.c unicode.c cgs.c
 
 TEST_SRCS!=ls test/*.c
 
@@ -8,6 +8,7 @@ TEST_FLAGS=-Itest -std=gnu23
 
 # Stage 1
 
+CFLAGS=-Iexternal -Iexternal/STC/include
 OBJS=$(SRCS:.c=.o)
 
 slimcc: $(OBJS)

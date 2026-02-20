@@ -17,9 +17,25 @@
 // parser.
 
 #include "slimcc.h"
+#include <ctype.h>
 
 #define CGS_SHORT_NAMES
 #include "cgs.h"
+
+#include "stc/common.h"
+
+#define T SViews, StrView
+#include "stc/vec.h"
+
+struct Nameprefix;
+typedef struct Nameprefix Nameprefix;
+struct NameprefixEntry;
+typedef struct NameprefixEntry NameprefixEntry;
+
+#define T NPVec, Nameprefix*
+#include "stc/vec.h"
+
+declare_vec(NPEntries, NameprefixEntry);
 
 // Scope for local variables, global variables, typedefs
 // or enum constants
@@ -195,6 +211,59 @@ struct FuncContext {
   Token *defr_ctx;
 };
 
+typedef struct NameprefixEntry
+{
+  StrView name;
+  
+  bool is_tag;
+  union {
+    Type *tag;
+    VarScope *var;
+  } entry;
+} NameprefixEntry;
+
+#define i_declared
+#define T NPEntries, NameprefixEntry
+#include "stc/vec.h"
+
+struct Nameprefix
+{
+  struct Nameprefix *parent;
+  
+  StrView name;
+  StrView prefix;
+  NPEntries entries;
+  NPVec nested_entries;
+};
+
+typedef struct ApplyPrefixScope
+{
+  Nameprefix *np;
+} ApplyPrefixScope;
+
+typedef struct CapturePrefixScopeMapping
+{
+  Nameprefix *np;
+} CapturePrefixScopeMapping;
+
+#define T CapturePrefixScope, CapturePrefixScopeMapping
+#include "stc/vec.h"
+
+typedef struct NameprefixScope
+{
+  bool is_capture;
+  union
+  {
+    CapturePrefixScope capture_scope;
+    ApplyPrefixScope apply_scope;
+  } scope;
+  
+  struct NameprefixScope *up;
+} NameprefixScope;
+
+static NameprefixScope *np_scope_stack;
+static NPVec outer_nps;
+
 // Likewise, global variables are accumulated to this list.
 static Obj *globals = &(Obj){0};
 
@@ -250,6 +319,11 @@ static int64_t const_expr2(Token **rest, Token *tok, Type **ty);
 static Node *new_node(NodeKind kind, Token *tok);
 static Node *resolve_local_gotos(void);
 static void push_goto(Node *node);
+
+static StrView strvtok(Token *tok);
+static StrView unquote(StrView);
+static char *get_prefixed_ident(Token *tok);
+static void consider_ident_for_all_capture_prefix_scopes(StrView tokv, void *k, bool is_tag);
 
 static bool is_const_context(void) {
   return fnctx ? fnctx->is_static_init_context : !scope->parent;
@@ -640,10 +714,119 @@ static void push_var_name(Token *name, Obj *var) {
   push_var_name2(name->loc, name->len, name, var);
 }
 
+static NameprefixEntry *push_np_var(Nameprefix *np, VarScope *var, StrView name)
+{
+  NameprefixEntry ent = {
+    .is_tag = false,
+    .entry.var = var,
+    .name = name
+  };
+  return NPEntries_push(&np->entries, ent);
+}
+
 static void push_gvar_name(Token *name, Obj *var) {
-  VarScope *vsc = push_var_scope(name->loc, name->len, var);
+  char *prefixed = get_prefixed_ident(name);
+  VarScope *vsc = push_var_scope(prefixed, strlen(prefixed), var);
   if (vsc && var != vsc->var)
     error_tok(name, "invalid redefinition of '%.*s'", name->len, name->loc);
+  
+  if(np_scope_stack != NULL)
+  {
+    if(np_scope_stack->is_capture)
+    {
+      assert(cgs_equal(strvtok(name), prefixed)); // its capture-scope, get_prefixed_ident should not modify it
+      consider_ident_for_all_capture_prefix_scopes(strvtok(name), vsc, false);
+    }
+    else
+    {
+      StrView prefix = unquote(np_scope_stack->scope.apply_scope.np->prefix);
+      assert(cgs_starts_with(prefixed, prefix));
+      push_np_var(np_scope_stack->scope.apply_scope.np, vsc, strv(prefixed, prefix.len));
+    }
+  }
+}
+
+static NameprefixEntry *np_contains(Nameprefix *np, StrView ident, bool is_tag)
+{
+  for(c_each(ent, NPEntries, np->entries))
+  {
+    if(ent.ref->is_tag == is_tag)
+    {
+      if(cgs_equal(ent.ref->name, ident))
+        return ent.ref;
+    }
+  }
+  return NULL;
+}
+
+static DStr get_np_full_name(Nameprefix *np)
+{
+  DStr full_np_name = dstr_init();
+  cgs_append(&full_np_name, np->name);
+  
+  Nameprefix *parent_iter = np->parent;
+  while(parent_iter)
+  {
+    cgs_prepend(&full_np_name, "::");
+    cgs_prepend(&full_np_name, parent_iter->name);
+    parent_iter = parent_iter->parent;
+  }
+  
+  return full_np_name;
+}
+
+static NameprefixEntry *push_np_tag(Nameprefix *np, Type *tag, StrView name)
+{
+  NameprefixEntry ent = {
+    .is_tag = true,
+    .entry.tag = tag,
+    .name = name
+  };
+  return NPEntries_push(&np->entries, ent);
+}
+
+static void consider_ident_for_all_capture_prefix_scopes(StrView tokv, void *k, bool is_tag)
+{
+  assert(np_scope_stack->is_capture);
+  
+  NameprefixScope *np_scope = np_scope_stack;
+  
+  // hashmap_put2(is_tag ? &scope->tags : &scope->vars, (char*) tokv.chars, tokv.len, k);
+  
+  while(np_scope != NULL)
+  {
+    if(!np_scope->is_capture)
+    {
+      np_scope = np_scope->up;
+      continue;
+    }
+    
+    CapturePrefixScope *sc = &np_scope->scope.capture_scope;
+    
+    for(c_each(mr, CapturePrefixScope, *sc))
+    {
+      Nameprefix *np = mr.ref->np;
+      StrView prefix = unquote(np->prefix);
+      if(
+        cgs_starts_with(tokv, prefix) &&
+        tokv.len > prefix.len         &&
+        (isalpha(tokv.chars[prefix.len]) || tokv.chars[prefix.len] == '_')
+      )
+      {
+        StrView unprefixed = strv(tokv, prefix.len);
+        NameprefixEntry *contained = np_contains(np, unprefixed, true);
+        if(contained && (contained->is_tag == is_tag) && *(void**)&contained->entry != k)
+        {
+          DStr full_name = get_np_full_name(np);
+          cgs_fprintln(stderr, "Nameprefix ", full_name, " already contains tag ", tokv);
+          exit(1);
+        }
+        
+        is_tag ? push_np_tag(np, k, unprefixed) : push_np_var(np, k, unprefixed);
+      }
+    }
+    np_scope = np_scope->up;
+  }
 }
 
 static Obj *alloc_ast_var(Type *ty) {
@@ -5407,8 +5590,9 @@ static Node *resolve_local_gotos(void) {
 static Obj *func_prototype(Type *ty, VarAttr *attr, Token *name) {
   if (scope->parent && (attr->strg & SC_STATIC))
     error_tok(name, "static function not in file scope");
-
-  HashEntry *ent = hashmap_get_or_insert(&symbols, name->loc, name->len);
+  
+  char *prefixed_name = get_prefixed_ident(name);
+  HashEntry *ent = hashmap_get_or_insert(&symbols, prefixed_name, strlen(prefixed_name));
   Obj *fn = ent->val;
   if (fn) {
     if (!is_compatible(fn->ty, ty))
@@ -5568,6 +5752,24 @@ static void func_definition(Token **rest, Token *tok, Obj *fn, Type *ty) {
   arena_off(&ast_arena);
 }
 
+static char *get_prefixed_ident(Token *tok)
+{
+  // The ident will not have ::, instead it will possibly be inside a nameprefix scope
+  if(np_scope_stack == NULL || np_scope_stack->is_capture)
+  {
+    return get_ident(tok);
+  }
+  else // inside apply-prefix
+  {
+    StrView prefix = unquote(np_scope_stack->scope.apply_scope.np->prefix);
+    DStr prefixed_ident = dstr_init();
+    cgs_append(&prefixed_ident, prefix);
+    cgs_append(&prefixed_ident, strvtok(tok));
+    
+    return (char*) prefixed_ident.chars;
+  }
+}
+
 static void global_declaration(Token **rest, Token *tok, Type *basety, VarAttr *attr) {
   bool first = true;
   for (; comma_list(&tok, &tok, ";", !first); first = false) {
@@ -5575,6 +5777,8 @@ static void global_declaration(Token **rest, Token *tok, Type *basety, VarAttr *
     Type *ty = declarator2(&tok, tok, basety, &name,
       &(DeclContext){.is_glob = !scope->parent});
 
+    char *prefixed_name = get_prefixed_ident(name);
+    
     if (ty->kind == TY_FUNC) {
       if (!name)
         error_tok(tok, "function name omitted");
@@ -5603,7 +5807,7 @@ static void global_declaration(Token **rest, Token *tok, Type *basety, VarAttr *
       is_definition = true;
     }
 
-    HashEntry *ent = hashmap_get_or_insert(&symbols, name->loc, name->len);
+    HashEntry *ent = hashmap_get_or_insert(&symbols, prefixed_name, strlen(prefixed_name));
     Obj *var = ent->val;
     if (var) {
       if (!is_compatible2(var->ty, ty))
@@ -5663,7 +5867,7 @@ void expect_tk_kind(Token *tok, TokenKind kind)
   }
 }
 
-StrView strvtok(Token *tok)
+static StrView strvtok(Token *tok)
 {
   StrView v = {.chars = (unsigned char*) tok->loc, .len = tok->len};
   return v;
@@ -5702,6 +5906,121 @@ enum { NOT_NP, NP_DECL, NP_ALIAS } get_np_kind(Token *tok)
   
 }
 
+Nameprefix *get_np(Nameprefix *parent, StrView np)
+{
+  NPVec *vec = &outer_nps;
+  if(parent != NULL)
+  {
+    vec = &parent->nested_entries;
+  }
+  
+  for(c_each(it, NPVec, *vec))
+  {
+    if(cgs_equal(it.ref[0]->name, np))
+    {
+      return it.ref[0];
+    }
+  }
+  return NULL;
+}
+
+Nameprefix *create_np(Nameprefix *parent, StrView name)
+{
+  Nameprefix *new_np = calloc(1, sizeof(Nameprefix));
+  new_np->parent = parent;
+  new_np->prefix = (StrView){0};
+  new_np->name = name;
+  new_np->entries = NPEntries_init();
+  new_np->nested_entries = NPVec_init();
+  
+  if(parent == NULL)
+  {
+    NPVec_push(&outer_nps, new_np);
+  }
+  else
+  {
+    NPVec_push(&parent->nested_entries, new_np);
+  }
+  return new_np;
+}
+
+static StrView unquote(StrView s)
+{
+  return strv(s, 1, s.len - 1);
+}
+
+Token *parse_np(Token *tok)
+{
+  // _Nameprefix A = "A_";
+  // _Nameprefix A::B = "A_B_";
+  
+  if(np_scope_stack != NULL && !np_scope_stack->is_capture)
+  {
+    error_tok(tok, "_Nameprefix declaration not allowed inside _Apply _Nameprefix scope");
+    exit(1);
+  }
+  
+  tok = skip(tok, "_Nameprefix");
+  expect_tk_kind(tok, TK_IDENT);
+  
+  StrView npname = strvtok(tok);
+  
+  Nameprefix *parent = NULL;
+  Nameprefix *np = get_np(parent, npname);
+  
+  tok = tok->next;
+  
+  // if parent _Nameprefix not found, and the code makes children of it, this will crash (deref NULL)
+  
+  while(equal(tok, "::"))
+  {
+    tok = skip(tok, "::");
+    parent = np;
+    npname = strvtok(tok);
+    tok = tok->next;
+    np = get_np(parent, npname);
+  }
+  
+  if(np == NULL)
+  {
+    np = create_np(parent, npname);
+  }
+  
+  tok = skip(tok, "=");
+  expect_tk_kind(tok, TK_STR);
+  
+  // re-decl of _Nameprefix is allowed ONLY IF it's identical to previous decl
+  if(np->prefix.chars != NULL)
+  {
+    if(!cgs_equal(np->prefix, strvtok(tok)))
+    {
+      DStr full_name = get_np_full_name(np);
+      error_tok(tok, "Redeclaration of _Nameprefix %s with a different prefix: %s. Previously declared with: %s", full_name.chars, cgs_dup(strvtok(tok)).chars, np->prefix.chars);
+    }
+  }
+  else
+  {
+    np->prefix = strvtok(tok);
+  }
+  
+  if(parent != NULL)
+  {
+    if(!cgs_starts_with(
+        unquote(np->prefix),
+        unquote(parent->prefix)
+       )
+    )
+    {
+      DStr np_full_name = get_np_full_name(np);
+      error_tok(tok, "_Nameprefix %s's prefix %s must start with its parent's prefix %s", np_full_name.chars, cgs_dup(np->prefix).chars, cgs_dup(parent->prefix).chars);
+    }
+  }
+  
+  tok = tok->next;
+  tok = skip(tok, ";");
+  return tok;
+}
+
 // program = (typedef | function-definition | global-variable)*
 Obj *parse(Token *tok) {
   Obj *glb_head = globals;
@@ -5714,8 +6033,11 @@ Obj *parse(Token *tok) {
     if (consume(&tok, tok, ";"))
       continue;
 
-    if (tok->kind == TK_Nameprefix)
+    int np_kind = get_np_kind(tok);
+    if (np_kind == NP_DECL)
     {
+      tok = parse_np(tok);
+      continue;
     }
 
     if (tok->kind == TK_asm) {
