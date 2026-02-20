@@ -1,0 +1,3 @@
+[submodule "external/STC"]
+	path = external/STC
+	url = https://github.com/stclib/STC.git
