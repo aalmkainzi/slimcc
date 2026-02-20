@@ -323,7 +323,7 @@ static void push_goto(Node *node);
 static StrView strvtok(Token *tok);
 static StrView unquote(StrView);
 static char *get_prefixed_ident(Token *tok);
-static void consider_ident_for_all_capture_prefix_scopes(StrView tokv, void *k, bool is_tag);
+static void consider_ident_for_all_capture_prefix_scopes(Token *tok, void *k, bool is_tag);
 static NameprefixEntry *push_np_tag(Nameprefix *np, Type *tag, StrView name);
 
 static bool is_const_context(void) {
@@ -610,7 +610,7 @@ static void push_tag_scope(Token *tag, Type *ty) {
   {
     if(np_scope_stack->is_capture)
     {
-      consider_ident_for_all_capture_prefix_scopes(strvtok(tag), ty, true);
+      consider_ident_for_all_capture_prefix_scopes((tag), ty, true);
     }
     else
     {
@@ -945,7 +945,7 @@ static void push_gvar_name(Token *name, Obj *var) {
     if(np_scope_stack->is_capture)
     {
       assert(cgs_equal(strvtok(name), prefixed)); // its capture-scope, get_prefixed_ident should not modify it
-      consider_ident_for_all_capture_prefix_scopes(strvtok(name), new_var, false);
+      consider_ident_for_all_capture_prefix_scopes((name), new_var, false);
     }
     else
     {
@@ -995,8 +995,9 @@ static NameprefixEntry *push_np_tag(Nameprefix *np, Type *tag, StrView name)
   return NPEntries_push(&np->entries, ent);
 }
 
-static void consider_ident_for_all_capture_prefix_scopes(StrView tokv, void *k, bool is_tag)
+static void consider_ident_for_all_capture_prefix_scopes(Token *tok, void *k, bool is_tag)
 {
+  StrView tokv = strvtok(tok);
   assert(np_scope_stack->is_capture);
   
   NameprefixScope *np_scope = np_scope_stack;
@@ -1028,8 +1029,7 @@ static void consider_ident_for_all_capture_prefix_scopes(StrView tokv, void *k, 
         if(contained && (contained->is_tag == is_tag) && *(void**)&contained->entry != k)
         {
           DStr full_name = get_np_full_name(np);
-          cgs_fprintln(stderr, "Nameprefix ", full_name, " already contains tag ", tokv);
-          exit(1);
+          error_tok(tok, "Nameprefix %s already contains tag %s", full_name.chars, cgs_dup(tokv).chars);
         }
         
         is_tag ? push_np_tag(np, k, unprefixed) : push_np_var(np, k, unprefixed);
@@ -2059,7 +2059,7 @@ static Type *enum_specifier(Token **rest, Token *tok) {
       if(np_scope_stack->is_capture)
       {
         assert(cgs_equal(strvtok(name), prefixed_variant)); // its capture-scope, get_prefixed_ident should not modify it
-        consider_ident_for_all_capture_prefix_scopes(strvtok(name), vsc, false);
+        consider_ident_for_all_capture_prefix_scopes((name), vsc, false);
       }
       else
       {

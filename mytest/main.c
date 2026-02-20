@@ -11,7 +11,12 @@ _Apply _Nameprefix B
     enum XX { D, E, F };
 }
 
+_Capture _Nameprefix B
+{
+    enum B__XXX { B__H, I, J };
+}
+
 int main()
 {
-    return C::D::A + B::F;
+    return B::H;
 }
