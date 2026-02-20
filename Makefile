@@ -8,7 +8,7 @@ TEST_FLAGS=-Itest -std=gnu23
 
 # Stage 1
 
-CFLAGS=-Iexternal -Iexternal/STC/include
+CFLAGS=-Iexternal -Iexternal/STC/include -Wno-discarded-qualifiers -ggdb
 OBJS=$(SRCS:.c=.o)
 
 slimcc: $(OBJS)
