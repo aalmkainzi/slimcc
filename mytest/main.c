@@ -17,7 +17,7 @@ _Apply _Nameprefix C1
 {
     struct K {int d;} x1;
     
-    float baba()
+    float K()
     {
         return i;
     }
@@ -25,5 +25,6 @@ _Apply _Nameprefix C1
 
 int main()
 {
-    struct C1::K k = C1::A::x1;
+    struct C1::K k = C1::x1;
+    return C1::K();
 }
