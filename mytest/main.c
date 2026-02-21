@@ -1,30 +1,17 @@
-_Nameprefix C1 = "C__";
-_Nameprefix C2 = "C__";
+_Nameprefix Physics = "phys_";
+_Nameprefix Physics::Engine = "phys_";
+_Nameprefix Physics::Engine::Collision = "phys_col_";
+_Nameprefix col = Physics::Engine::Collision; // Alias
 
-_Nameprefix C1::A = "C__";
-
-_Capture _Nameprefix
-C1,
-C1::A
+_Apply _Nameprefix Physics::Engine::Collision
 {
-    float C__i = 5;
-    int C__foo() { return 20; }
+    void detect() {} // phys_col_detect
 }
 
-float i = 10;
-
-_Apply _Nameprefix C1
-{
-    struct K {int d;} x1;
-    
-    float K()
-    {
-        return i;
-    }
-}
-
-int main()
-{
-    struct C1::K k = C1::x1;
-    return C1::K();
+int main() {
+    Physics::Engine::Collision::detect(); // Long path
+    col::detect();                        // Alias path
+    _Nameprefix col2 = col;
+    phys_col_detect();                    // Direct mangled path
+    return 0;
 }

@@ -20,7 +20,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <signal.h>
-
+#include "stc/types.h"
 
 #if defined(__SANITIZE_ADDRESS__)
 #define USE_ASAN 1
@@ -237,10 +237,10 @@ typedef enum {
   TK_typeof_unqual,
   TK_thread_local,
   TK_volatile,
+  TK_TYPEKW_END,
   TK_Nameprefix,
   TK_Capture,
   TK_Apply,
-  TK_TYPEKW_END,
 } TokenKind;
 
 static char *token_kind_str[] =
@@ -698,6 +698,11 @@ ANON_UNION_START
 ANON_UNION_END
 };
 
+struct NPAlias;
+typedef struct NPAlias NPAlias;
+
+declare_hashset(NPAliasSet, NPAlias);
+
 // Represents a block scope.
 typedef struct Scope Scope;
 struct Scope {
@@ -711,7 +716,8 @@ struct Scope {
   bool is_temporary;
   bool is_stmt;
   bool has_label;
-
+  
+  NPAliasSet np_aliases;
   // C has two block scopes; one is for variables/typedefs and
   // the other is for struct/union/enum tags.
   HashMap vars;

@@ -22,18 +22,14 @@
 #define CGS_SHORT_NAMES
 #include "cgs.h"
 
-#include "stc/common.h"
-
 #define T SViews, StrView
 #include "stc/vec.h"
 
 struct Nameprefix;
 typedef struct Nameprefix Nameprefix;
+
 struct NameprefixEntry;
 typedef struct NameprefixEntry NameprefixEntry;
-
-#define T NPVec, Nameprefix*
-#include "stc/vec.h"
 
 declare_vec(NPEntries, NameprefixEntry);
 
@@ -226,6 +222,8 @@ typedef struct NameprefixEntry
 #define T NPEntries, NameprefixEntry
 #include "stc/vec.h"
 
+declare_vec(NPVec, Nameprefix*);
+
 struct Nameprefix
 {
   struct Nameprefix *parent;
@@ -235,6 +233,32 @@ struct Nameprefix
   NPEntries entries;
   NPVec nested_entries;
 };
+
+#define T NPVec, Nameprefix*
+#define i_declared
+#include "stc/vec.h"
+
+struct NPAlias
+{
+  StrView name;
+  Nameprefix *np;
+};
+
+static inline bool np_alias_eq(const NPAlias *a, const NPAlias *b)
+{
+  return cgs_equal(a->name, b->name);
+}
+
+static inline uint32_t np_alias_hash(const NPAlias *a)
+{
+  return c_hash_n(a->name.chars, a->name.len);
+}
+
+#define i_hash np_alias_hash
+#define i_eq np_alias_eq
+#define T NPAliasSet, NPAlias
+#define i_declared
+#include "stc/hashset.h"
 
 typedef struct ApplyPrefixScope
 {
@@ -399,6 +423,7 @@ static Scope *decl_scope(void) {
 
 static Nameprefix *get_np_from_access_starting_from(Token *tok, Nameprefix *starting_from, SViews access, NameprefixEntry **entry_ref)
 {
+  assert(access.size != 0);
   Nameprefix *np = starting_from;
   while(np)
   {
@@ -424,6 +449,9 @@ static Nameprefix *get_np_from_access_starting_from(Token *tok, Nameprefix *star
         else
         {
           Nameprefix *found = ent.ref[0];
+          
+          if(entry_ref == NULL)
+            return found;
           
           for(c_each(var_ent, NPEntries, found->entries))
           {
@@ -490,8 +518,62 @@ static Nameprefix *get_np_from_access_starting_from(Token *tok, Nameprefix *star
   error_tok(tok, "%s does not exist", dst.chars);
 }
 
+static char * dbg_print_aliases(NPAliasSet *set)
+{
+  DStr dst = dstr_init();
+  cgs_sprint_append(&dst, "COUNT=", set->size);
+  cgs_sprint_append(&dst, "\n{");
+  for(c_each(it, NPAliasSet, *set))
+  {
+    cgs_sprint_append(&dst, "'",it.ref->name, "'",", ");
+  }
+  cgs_sprint_append(&dst, "}");
+  return (char*) dst.chars;
+}
+
 static Nameprefix *get_np_from_access(Token *tok, SViews access, NameprefixEntry **entry_ref)
 {
+  Scope *sc_it = scope;
+  
+  while(sc_it)
+  {
+    NPAlias key = { .name = access.data[0] };
+    const NPAlias *ent = NPAliasSet_get(&sc_it->np_aliases, key);
+    if(ent != NULL)
+    {
+      if(access.size == 1)
+      {
+        if(entry_ref == NULL)
+        {
+          return ent->np;
+        }
+        for(c_each(var_ent, NPEntries, ent->np->entries))
+        {
+          if(var_ent.ref->is_tag == entry_ref[0]->is_tag)
+          {
+            if( cgs_equal(var_ent.ref->name, entry_ref[0]->name) )
+            {
+              *entry_ref = var_ent.ref;
+              return ent->np;
+            }
+          }
+        }
+      }
+      else
+      {
+        access.data += 1;
+        access.size -= 1;
+        Nameprefix *found = get_np_from_access_starting_from(tok, ent->np, access, entry_ref);
+        if(found)
+          return found;
+        access.data -= 1;
+        access.size += 1;
+      }
+      break; // first alias only
+    }
+    sc_it = sc_it->parent;
+  }
+  
   if(np_scope_stack != NULL && !np_scope_stack->is_capture)
   {
     Nameprefix *np = np_scope_stack->scope.apply_scope.np;
@@ -3298,6 +3380,50 @@ static JumpContext *resolve_labeled_jump(Token **rest, Token *tok, bool is_cont)
   error_tok(tok, "cannot resolve jump");
 }
 
+static Token *parse_np_alias(Token *tok)
+{
+  tok = skip(tok, "_Nameprefix");
+  if(tok->kind != TK_IDENT)
+    error_tok(tok, "Expected identifier");
+  
+  NPAlias alias = {.name = strvtok(tok)};
+  
+  tok = tok->next;
+  tok = skip(tok, "=");
+  
+  if(tok->kind != TK_IDENT)
+    error_tok(tok, "Expected identifier");
+  
+  SViews accesses = SViews_init();
+  SViews_push(&accesses, strvtok(tok));
+  
+  tok = tok->next;
+  
+  while(equal(tok, "::"))
+  {
+    tok = skip(tok, "::");
+    
+    if(tok->kind != TK_IDENT)
+      error_tok(tok, "Expected identifier");
+    
+    SViews_push(&accesses, strvtok(tok));
+    
+    tok = tok->next;
+  }
+  
+  Nameprefix *np = get_np_from_access(tok, accesses, 0);
+  
+  alias.np = np;
+  
+  if(NPAliasSet_contains(&scope->np_aliases, alias))
+  {
+    error_tok(tok, "Nameprefix alias %s already declared in scope", cgs_dup(alias.name).chars);
+  }
+  NPAliasSet_push(&scope->np_aliases, alias);
+  
+  return tok;
+}
+
 static Node *stmt(Token **rest, Token *tok, Token *label_list) {
   if (tok->kind == TK_return) {
     if (fnctx->defr_ctx)
@@ -3314,6 +3440,14 @@ static Node *stmt(Token **rest, Token *tok, Token *label_list) {
     node->m.lhs = n;
     *rest = skip(tok, ";");
     return node;
+  }
+  
+  if(tok->kind == TK_Nameprefix)
+  {
+    // nameprefix alias
+    tok = parse_np_alias(tok);
+    
+    return stmt(rest, tok, label_list);
   }
 
   if (tok->kind == TK_if) {
@@ -5796,7 +5930,8 @@ static Node *parse_typedef(Token **rest, Token *tok, Type *basety, VarAttr *attr
     int align = 0;
     aligned_attr(name, tok, attr, &align);
 
-    HashEntry *ent = hashmap_get_or_insert(&scope->vars, name->loc, name->len);
+    char *prefixed_name = get_prefixed_ident(name);
+    HashEntry *ent = hashmap_get_or_insert(&scope->vars, prefixed_name, strlen(prefixed_name));
     VarScope *vsc = ent->val;
     if (vsc) {
       if (!vsc->type_def)
@@ -5812,6 +5947,18 @@ static Node *parse_typedef(Token **rest, Token *tok, Type *basety, VarAttr *attr
       vsc->type_def = ty;
       vsc->type_def_align = align;
       chain_expr(&node, calc_vla(ty, tok));
+    }
+    
+    if(np_scope_stack != NULL)
+    {
+      if(np_scope_stack->is_capture)
+      {
+        consider_ident_for_all_capture_prefix_scopes(name, vsc, false);
+      }
+      else
+      {
+        push_np_var(np_scope_stack->scope.apply_scope.np, vsc, strvtok(name));
+      }
     }
   }
   return node;
@@ -6452,7 +6599,13 @@ Obj *parse(Token *tok) {
     int np_kind = get_np_kind(tok);
     if (np_kind == NP_DECL)
     {
+      // TODO currently seg faults if doing A::B::C::D when they dont exist. should I allow it? prolly not
       tok = parse_np(tok);
+      continue;
+    }
+    if(np_kind == NP_ALIAS)
+    {
+      tok = parse_np_alias(tok);
       continue;
     }
     
