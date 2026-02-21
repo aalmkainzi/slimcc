@@ -1111,6 +1111,8 @@ static void consider_ident_for_all_capture_prefix_scopes(Token *tok, void *k, bo
         NameprefixEntry *contained = np_contains(np, unprefixed, true);
         if(contained && (contained->is_tag == is_tag) && *(void**)&contained->entry != k)
         {
+          continue;
+          
           DStr full_name = get_np_full_name(np);
           error_tok(tok, "Nameprefix %s already contains tag %s", full_name.chars, cgs_dup(tokv).chars);
         }
@@ -3389,11 +3391,14 @@ static Token *parse_np_alias(Token *tok)
   
   NPAlias alias = {.name = strvtok(tok)};
   
-  for(c_each(it, NPVec, outer_nps))
+  if(scope->parent == NULL)
   {
-    if(cgs_equal(it.ref[0]->name, alias.name))
+    for(c_each(it, NPVec, outer_nps))
     {
-      error_tok(tok, "Cannot create alias %s, as the name already exists as a _Nameprefix", cgs_dup(alias.name).chars);
+      if(cgs_equal(it.ref[0]->name, alias.name))
+      {
+        error_tok(tok, "Cannot create alias %s, as the name already exists as a _Nameprefix", cgs_dup(alias.name).chars);
+      }
     }
   }
   
@@ -6398,6 +6403,27 @@ static StrView unquote(StrView s)
   return strv(s, 1, s.len - 1);
 }
 
+void str_lit_is_ident(Token *tok)
+{
+  StrView strv = unquote(strvtok(tok));
+    
+  if(strv.len == 0)
+    return;
+  
+  if(!(isalpha(strv.chars[0]) || strv.chars[0] == '_'))
+  {
+    error_tok(tok, "Invalid prefix character '%c'", strv.chars[0]);
+  }
+  
+  for(unsigned int i = 1 ; i < strv.len ; i++)
+  {
+    if(!(isalnum(strv.chars[i]) || strv.chars[i] == '_'))
+    {
+      error_tok(tok, "Invalid prefix character '%c'", strv.chars[0]);
+    }
+  }
+}
+
 Token *parse_np(Token *tok)
 {
   // _Nameprefix A = "A_";
@@ -6441,6 +6467,11 @@ Token *parse_np(Token *tok)
     npname = strvtok(tok);
     tok = tok->next;
     np = get_np(parent, npname);
+    
+    if(np == NULL && equal(tok, "::"))
+    {
+      error_tok(tok, "_Nameprefix does not exist");
+    }
   }
   
   if(np == NULL)
@@ -6450,6 +6481,8 @@ Token *parse_np(Token *tok)
   
   tok = skip(tok, "=");
   expect_tk_kind(tok, TK_STR);
+  
+  str_lit_is_ident(tok);
   
   // re-decl of _Nameprefix is allowed ONLY IF it's identical to previous decl
   if(np->prefix.chars != NULL)
@@ -6603,6 +6636,16 @@ Token *parse_np_scope(Token *tok)
 Obj *parse(Token *tok) {
   Obj *glb_head = globals;
 
+  Nameprefix *global_np = create_np(NULL, strv("_Global"));
+  global_np->prefix = strv("\"\"");
+  
+  NameprefixScope *global_np_scope = np_scope_stack = calloc(1, sizeof(NameprefixScope));
+  np_scope_stack->is_capture = true;
+  np_scope_stack->scope.capture_scope = CapturePrefixScope_init();
+  
+  CapturePrefixScopeMapping global_np_mapping = {.np = global_np};
+  CapturePrefixScope_push(&np_scope_stack->scope.capture_scope, global_np_mapping);
+  
   Token *free_head = tok;
   while (tok->kind != TK_EOF) {
     if (free_alloc)
@@ -6611,7 +6654,7 @@ Obj *parse(Token *tok) {
     if (consume(&tok, tok, ";"))
       continue;
     
-    if(cgs_equal(strvtok(tok), "}") && np_scope_stack != NULL)
+    if(cgs_equal(strvtok(tok), "}") && np_scope_stack != global_np_scope)
     {
       np_scope_stack = np_scope_stack->up;
       tok = skip(tok, "}");

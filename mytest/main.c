@@ -1,8 +1,13 @@
-_Nameprefix A::B::C = "A__";
-_Nameprefix A::D = "D_";
+#include <stdio.h>
 
-_Apply _Nameprefix C
+_Nameprefix A = "_1_";
+
+_Apply _Nameprefix A
 {
+    int foo() { puts("hello"); }
 }
 
-int main(){}
+int main()
+{
+    A::foo();
+}
