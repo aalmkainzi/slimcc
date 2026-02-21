@@ -1,6 +1,8 @@
-_Nameprefix A = "A__";
-_Nameprefix a = A;
-_Nameprefix a = "B__";
+_Nameprefix A::B::C = "A__";
+_Nameprefix A::D = "D_";
 
+_Apply _Nameprefix C
+{
+}
 
 int main(){}
