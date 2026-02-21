@@ -495,6 +495,9 @@ static Nameprefix *get_np_from_access_starting_from(Token *tok, Nameprefix *star
       {
         Nameprefix *found = ent.ref[0];
         
+        if(entry_ref == NULL)
+          return found;
+        
         for(c_each(var_ent, NPEntries, found->entries))
         {
           if(var_ent.ref[0].is_tag == entry_ref[0]->is_tag)
@@ -6392,7 +6395,7 @@ Nameprefix *create_np(Nameprefix *parent, StrView name)
     NameprefixScope *outer = np_scope_stack;
     while(outer->up != NULL)
       outer = outer->up;
-    Nameprefix *global_np = outer->scope.capture_scope.data[0].np;
+    Nameprefix *global_np = outer->scope.apply_scope.np;
     
     NPVec_push(&outer_nps, new_np);
     NPVec_push(&global_np->nested_entries, new_np);
@@ -6425,7 +6428,7 @@ void str_lit_is_ident(Token *tok)
   {
     if(!(isalnum(strv.chars[i]) || strv.chars[i] == '_'))
     {
-      error_tok(tok, "Invalid prefix character '%c'", strv.chars[0]);
+      error_tok(tok, "Invalid prefix character '%c'", strv.chars[i]);
     }
   }
 }
@@ -6435,7 +6438,7 @@ Token *parse_np(Token *tok)
   // _Nameprefix A = "A_";
   // _Nameprefix A::B = "A_B_";
   
-  if(np_scope_stack != NULL && !np_scope_stack->is_capture)
+  if(np_scope_stack != NULL && (!np_scope_stack->is_capture && np_scope_stack->up != NULL))
   {
     error_tok(tok, "_Nameprefix declaration not allowed inside _Apply _Nameprefix scope");
     exit(1);
@@ -6642,6 +6645,8 @@ Token *parse_np_scope(Token *tok)
 Obj *parse(Token *tok) {
   Obj *glb_head = globals;
 
+  // TODO should prefixed symbols be added to _Global?
+  // e.g. A__foo() of A::foo, should _Global contain A__foo? currently no
   Nameprefix *global_np = calloc(1, sizeof(Nameprefix));
   NPVec_push(&outer_nps, global_np);
   global_np->name = strv("_Global");
@@ -6650,11 +6655,8 @@ Obj *parse(Token *tok) {
   global_np->nested_entries = NPVec_init();
   
   NameprefixScope *global_np_scope = np_scope_stack = calloc(1, sizeof(NameprefixScope));
-  np_scope_stack->is_capture = true;
-  np_scope_stack->scope.capture_scope = CapturePrefixScope_init();
-  
-  CapturePrefixScopeMapping global_np_mapping = {.np = global_np};
-  CapturePrefixScope_push(&np_scope_stack->scope.capture_scope, global_np_mapping);
+  np_scope_stack->is_capture = false;
+  np_scope_stack->scope.apply_scope.np = global_np;
   
   Token *free_head = tok;
   while (tok->kind != TK_EOF) {
