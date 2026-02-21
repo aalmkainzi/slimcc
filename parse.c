@@ -698,6 +698,7 @@ static void push_tag_scope(Token *tag, Type *ty) {
   {
     if(np_scope_stack->is_capture)
     {
+      hashmap_put2(&decl_scope()->tags, tag->loc, tag->len, ty);
       consider_ident_for_all_capture_prefix_scopes((tag), ty, true);
     }
     else
