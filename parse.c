@@ -486,7 +486,7 @@ static Nameprefix *get_np_from_access_starting_from(Token *tok, Nameprefix *star
   StrViewArray sva = strv_arr_from_carr(access.data, access.size);
   DStr dst = dstr_init();
   cgs_join(&dst, sva, "::");
-  error_tok(tok, "_Nameprefix %s does not exist", dst.chars);
+  error_tok(tok, "%s::%s does not exist", dst.chars, cgs_dup(entry_ref[0]->name).chars);
 }
 
 static Nameprefix *get_np_from_access(Token *tok, SViews access, NameprefixEntry **entry_ref)
@@ -6339,7 +6339,7 @@ Nameprefix *get_np_by_name(Nameprefix *in_scope_of, Token **tokp)
   
   if(np == NULL)
   {
-    np_not_exist_error(in_scope_of, np_name, tok);
+    np_not_exist_error(in_scope_of, np_name, *tokp);
   }
   
   while(cgs_equal(strvtok(tok), "::"))

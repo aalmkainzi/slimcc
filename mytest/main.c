@@ -1,22 +1,29 @@
-_Nameprefix A = "A__";
-_Nameprefix B = "B__";
+_Nameprefix C1 = "C__";
+_Nameprefix C2 = "C__";
 
-_Apply _Nameprefix A
+_Nameprefix C1::A = "C__";
+
+_Capture _Nameprefix
+C1,
+C1::A
 {
-    enum XX { A, B, C };
+    float C__i = 5;
+    int C__foo() { return 20; }
 }
 
-_Apply _Nameprefix B
-{
-    enum XX { D, E, F };
-}
+float i = 10;
 
-_Capture _Nameprefix B
+_Apply _Nameprefix C1
 {
-    enum B__XXX { B__H, I, J };
+    struct K {int d;} x1;
+    
+    float baba()
+    {
+        return i;
+    }
 }
 
 int main()
 {
-    return B::H;
+    struct C1::K k = C1::A::x1;
 }
