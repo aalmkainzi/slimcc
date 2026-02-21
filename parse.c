@@ -3386,7 +3386,16 @@ static Token *parse_np_alias(Token *tok)
   if(tok->kind != TK_IDENT)
     error_tok(tok, "Expected identifier");
   
+  
   NPAlias alias = {.name = strvtok(tok)};
+  
+  for(c_each(it, NPVec, outer_nps))
+  {
+    if(cgs_equal(it.ref[0]->name, alias.name))
+    {
+      error_tok(tok, "Cannot create alias %s, as the name already exists as a _Nameprefix", cgs_dup(alias.name).chars);
+    }
+  }
   
   tok = tok->next;
   tok = skip(tok, "=");
@@ -6405,6 +6414,19 @@ Token *parse_np(Token *tok)
   
   StrView npname = strvtok(tok);
   
+  if(equal(tok->next, "=")) // no ::
+  {
+    assert(scope->parent == NULL);
+    
+    for(c_each(ait, NPAliasSet, scope->np_aliases))
+    {
+      if(cgs_equal(npname, ait.ref->name))
+      {
+        error_tok(tok, "_Nameprefix alias with the name '%s' is already declared", cgs_dup(npname).chars);
+      }
+    }
+  }
+  
   Nameprefix *parent = NULL;
   Nameprefix *np = get_np(parent, npname);
   
@@ -6599,12 +6621,13 @@ Obj *parse(Token *tok) {
     int np_kind = get_np_kind(tok);
     if (np_kind == NP_DECL)
     {
-      // TODO currently seg faults if doing A::B::C::D when they dont exist. should I allow it? prolly not
+      // TODO currently seg faults if doing A::B::C::D when they dont exist. better to error_tok
       tok = parse_np(tok);
       continue;
     }
     if(np_kind == NP_ALIAS)
     {
+      // TODO aliases at file scope cannot have same name as existing Nameprefix
       tok = parse_np_alias(tok);
       continue;
     }
