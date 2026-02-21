@@ -1108,8 +1108,8 @@ static void consider_ident_for_all_capture_prefix_scopes(Token *tok, void *k, bo
       )
       {
         StrView unprefixed = strv(tokv, prefix.len);
-        NameprefixEntry *contained = np_contains(np, unprefixed, true);
-        if(contained && (contained->is_tag == is_tag) && *(void**)&contained->entry != k)
+        NameprefixEntry *contained = np_contains(np, unprefixed, is_tag);
+        if(contained)
         {
           continue;
           
@@ -6389,7 +6389,13 @@ Nameprefix *create_np(Nameprefix *parent, StrView name)
   
   if(parent == NULL)
   {
+    NameprefixScope *outer = np_scope_stack;
+    while(outer->up != NULL)
+      outer = outer->up;
+    Nameprefix *global_np = outer->scope.capture_scope.data[0].np;
+    
     NPVec_push(&outer_nps, new_np);
+    NPVec_push(&global_np->nested_entries, new_np);
   }
   else
   {
@@ -6636,8 +6642,12 @@ Token *parse_np_scope(Token *tok)
 Obj *parse(Token *tok) {
   Obj *glb_head = globals;
 
-  Nameprefix *global_np = create_np(NULL, strv("_Global"));
+  Nameprefix *global_np = calloc(1, sizeof(Nameprefix));
+  NPVec_push(&outer_nps, global_np);
+  global_np->name = strv("_Global");
   global_np->prefix = strv("\"\"");
+  global_np->entries = NPEntries_init();
+  global_np->nested_entries = NPVec_init();
   
   NameprefixScope *global_np_scope = np_scope_stack = calloc(1, sizeof(NameprefixScope));
   np_scope_stack->is_capture = true;
