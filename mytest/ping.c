@@ -13,5 +13,3 @@ _Apply _Nameprefix Net {
         ping(); // VALID: 'ping' is a known member of 'Net' now
     }
 }
-
-int main(){}

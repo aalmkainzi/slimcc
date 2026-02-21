@@ -620,7 +620,7 @@ static void *find_ident(Token *tok, Token **after, bool is_tag)
       return ret;
     }
     
-    if(np_scope_stack && !np_scope_stack->is_capture)
+    if(np_scope_stack != global_np_scope && !np_scope_stack->is_capture)
     {
       Nameprefix *np = np_scope_stack->scope.apply_scope.np;
       while(np)
@@ -1028,7 +1028,7 @@ static void push_gvar_name(Token *name, Obj *var) {
   if (vsc && var != vsc->var)
     error_tok(name, "invalid redefinition of '%.*s'", name->len, name->loc);
   
-  if(np_scope_stack != NULL)
+  if(np_scope_stack != NULL && scope->parent == NULL)
   {
     if(np_scope_stack->is_capture)
     {
@@ -1040,7 +1040,8 @@ static void push_gvar_name(Token *name, Obj *var) {
       StrView prefix = unquote(np_scope_stack->scope.apply_scope.np->prefix);
       assert(cgs_starts_with(prefixed, prefix));
       push_np_var(np_scope_stack->scope.apply_scope.np, new_var, strv(prefixed, prefix.len));
-      push_np_var(global_np_scope->scope.apply_scope.np, new_var, strv(prefixed));
+      if(np_scope_stack->scope.apply_scope.np != global_np_scope->scope.apply_scope.np)
+        push_np_var(global_np_scope->scope.apply_scope.np, new_var, strv(prefixed));
     }
   }
 }
@@ -2119,12 +2120,11 @@ static Type *enum_specifier(Token **rest, Token *tok) {
     int64_t v = val++;
     is_ovf = !is_neg && val == 0;
     is_neg = (int64_t)val < 0;
-  
+
     char *prefixed_variant = get_prefixed_ident(name);
     HashEntry *ent = hashmap_get_or_insert(&decl_scope()->vars, prefixed_variant, strlen(prefixed_variant));
     VarScope *vsc = ent->val;
-    
-    
+
     if (vsc) {
       if (opt_std >= STD_C23 && tag_enum_cnt && vsc->enum_ty) {
         if (vsc->enum_val != v)
@@ -2145,7 +2145,7 @@ static Type *enum_specifier(Token **rest, Token *tok) {
       vsc->enum_val = v;
     }
     
-    if(np_scope_stack != NULL)
+    if(np_scope_stack != NULL && scope->parent == NULL)
     {
       if(np_scope_stack->is_capture)
       {
@@ -2157,7 +2157,8 @@ static Type *enum_specifier(Token **rest, Token *tok) {
         StrView prefix = unquote(np_scope_stack->scope.apply_scope.np->prefix);
         assert(cgs_starts_with(prefixed_variant, prefix));
         push_np_var(np_scope_stack->scope.apply_scope.np, vsc, strv(prefixed_variant, prefix.len));
-        push_np_var(global_np_scope->scope.apply_scope.np, vsc, strv(prefixed_variant));
+        if(np_scope_stack->scope.apply_scope.np != global_np_scope->scope.apply_scope.np)
+          push_np_var(global_np_scope->scope.apply_scope.np, vsc, strv(prefixed_variant));
       }
     }
   }
@@ -5970,7 +5971,7 @@ static Node *parse_typedef(Token **rest, Token *tok, Type *basety, VarAttr *attr
       chain_expr(&node, calc_vla(ty, tok));
     }
     
-    if(np_scope_stack != NULL)
+    if(np_scope_stack != NULL && scope->parent == NULL)
     {
       if(np_scope_stack->is_capture)
       {
@@ -5979,7 +5980,8 @@ static Node *parse_typedef(Token **rest, Token *tok, Type *basety, VarAttr *attr
       else
       {
         push_np_var(np_scope_stack->scope.apply_scope.np, vsc, strvtok(name));
-        push_np_var(global_np_scope->scope.apply_scope.np, vsc, strv(prefixed_name));
+        if(np_scope_stack->scope.apply_scope.np != global_np_scope->scope.apply_scope.np)
+          push_np_var(global_np_scope->scope.apply_scope.np, vsc, strv(prefixed_name));
       }
     }
   }

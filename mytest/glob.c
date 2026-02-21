@@ -14,7 +14,7 @@ _Apply _Nameprefix A
     }
 }
 
-int main()
+int b()
 {
     return
     _Global::A::B::foo() + 

@@ -13,5 +13,3 @@ _Apply _Nameprefix Parent {
     // } 
     
 }
-
-int main(){}

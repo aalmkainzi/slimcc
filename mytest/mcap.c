@@ -17,7 +17,7 @@ _Capture _Nameprefix A {
     }
 }
 
-int main() {
+int a() {
     A::func(); // OK
     B::func(); // OK
     // C::func(); // ERROR
