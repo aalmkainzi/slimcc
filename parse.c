@@ -299,6 +299,8 @@ static FuncContext *fnctx;
 
 static bool *eval_recover;
 
+static NameprefixScope *global_np_scope = NULL;
+
 static bool is_typename(Token *tok, Token **after);
 static Type *typename(Token **rest, Token *tok);
 static Type *typename2(Token **rest, Token *tok, VarAttr *attr);
@@ -1038,6 +1040,7 @@ static void push_gvar_name(Token *name, Obj *var) {
       StrView prefix = unquote(np_scope_stack->scope.apply_scope.np->prefix);
       assert(cgs_starts_with(prefixed, prefix));
       push_np_var(np_scope_stack->scope.apply_scope.np, new_var, strv(prefixed, prefix.len));
+      push_np_var(global_np_scope->scope.apply_scope.np, new_var, strv(prefixed));
     }
   }
 }
@@ -2154,6 +2157,7 @@ static Type *enum_specifier(Token **rest, Token *tok) {
         StrView prefix = unquote(np_scope_stack->scope.apply_scope.np->prefix);
         assert(cgs_starts_with(prefixed_variant, prefix));
         push_np_var(np_scope_stack->scope.apply_scope.np, vsc, strv(prefixed_variant, prefix.len));
+        push_np_var(global_np_scope->scope.apply_scope.np, vsc, strv(prefixed_variant));
       }
     }
   }
@@ -5975,6 +5979,7 @@ static Node *parse_typedef(Token **rest, Token *tok, Type *basety, VarAttr *attr
       else
       {
         push_np_var(np_scope_stack->scope.apply_scope.np, vsc, strvtok(name));
+        push_np_var(global_np_scope->scope.apply_scope.np, vsc, strv(prefixed_name));
       }
     }
   }
@@ -6654,7 +6659,7 @@ Obj *parse(Token *tok) {
   global_np->entries = NPEntries_init();
   global_np->nested_entries = NPVec_init();
   
-  NameprefixScope *global_np_scope = np_scope_stack = calloc(1, sizeof(NameprefixScope));
+  global_np_scope = np_scope_stack = calloc(1, sizeof(NameprefixScope));
   np_scope_stack->is_capture = false;
   np_scope_stack->scope.apply_scope.np = global_np;
   
@@ -6744,5 +6749,6 @@ Obj *parse(Token *tok) {
     arena_off(&node_arena);
   }
 
+  global_np_scope = NULL;
   return glb_head->next;
 }

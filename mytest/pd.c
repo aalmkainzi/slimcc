@@ -7,7 +7,7 @@ _Apply _Nameprefix Task {
         finish();
         _Global::Task::finish();
         t_finish();
-        // _Global::t_finish(); // this currently is not allowed
+        _Global::t_finish();
     }
     
 }
