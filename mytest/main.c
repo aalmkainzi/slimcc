@@ -62,7 +62,7 @@ void *spawner_thread(void *arg) {
     return NULL;
 }
 
-int main(void) {
+int pt(void) {
     _Nameprefix pt = posix::thread;
     
     pthread_t th;
