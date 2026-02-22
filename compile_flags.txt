@@ -1,3 +1,4 @@
 -std=c23
 -Iexternal
 -Iexternal/STC/include
+-Iscripts/SDL/include
