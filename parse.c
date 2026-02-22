@@ -3394,6 +3394,11 @@ static JumpContext *resolve_labeled_jump(Token **rest, Token *tok, bool is_cont)
 
 static Token *parse_np_alias(Token *tok)
 {
+  if(scope->parent == NULL && np_scope_stack != global_np_scope && !np_scope_stack->is_capture)
+  {
+    error_tok(tok, "Cannot declare _Nameprefix alias inside _Apply scope");
+  }
+  
   tok = skip(tok, "_Nameprefix");
   if(tok->kind != TK_IDENT)
     error_tok(tok, "Expected identifier");
@@ -6525,7 +6530,7 @@ Token *parse_np(Token *tok)
     )
     {
       DStr np_full_name = get_np_full_name(np);
-      error_tok(tok, "_Nameprefix %s's prefix %s must start with its parent's prefix %s", np_full_name.chars, cgs_dup(np->prefix).chars, cgs_dup(parent->prefix).chars);
+      error_tok(tok, "_Nameprefix %s prefix %s must start with its parent's prefix %s", np_full_name.chars, cgs_dup(np->prefix).chars, cgs_dup(parent->prefix).chars);
     }
   }
   
