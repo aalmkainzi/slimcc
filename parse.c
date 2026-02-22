@@ -6523,6 +6523,7 @@ Token *parse_np(Token *tok)
   
   if(parent != NULL)
   {
+    // remove 0&& to make child prefix have to be prefixed with its parent
     if(0&&!cgs_starts_with(
         unquote(np->prefix),
         unquote(parent->prefix)

@@ -8,6 +8,8 @@ _Apply _Nameprefix A
     int foo() { return 5; }
 }
 
+_Nameprefix g = _Global;
+
 _Apply _Nameprefix A::B
 {
     int bar() { return 10; }
@@ -15,5 +17,8 @@ _Apply _Nameprefix A::B
 
 int main()
 {
-    return ab::bar();
+    _Nameprefix tmp = ab;
+    _Nameprefix ab = ab;
+    
+    return ab::bar() + tmp::bar() + A::B::bar() + g::A__foo() + g::B__bar();
 }
