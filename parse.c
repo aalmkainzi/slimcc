@@ -701,6 +701,7 @@ static void push_tag_scope(Token *tag, Type *ty) {
     {
       hashmap_put2(&decl_scope()->tags, tag->loc, tag->len, ty);
       consider_ident_for_all_capture_prefix_scopes((tag), ty, true);
+      push_np_tag(global_np_scope->scope.apply_scope.np, ty, strvtok(tag));
     }
     else
     {
@@ -715,6 +716,8 @@ static void push_tag_scope(Token *tag, Type *ty) {
       hashmap_put2(&decl_scope()->tags, (char*) new_name.chars, new_name.len, ty);
       
       push_np_tag(np, ty, strvtok(tag));
+      if(np != global_np_scope->scope.apply_scope.np)
+        push_np_tag(global_np_scope->scope.apply_scope.np, ty, strvtok(tag));
     }
   }
   else
@@ -1036,6 +1039,7 @@ static void push_gvar_name(Token *name, Obj *var) {
     {
       assert(cgs_equal(strvtok(name), prefixed)); // its capture-scope, get_prefixed_ident should not modify it
       consider_ident_for_all_capture_prefix_scopes((name), new_var, false);
+      push_np_var(global_np_scope->scope.apply_scope.np, new_var, strvtok(name));
     }
     else
     {
@@ -2153,6 +2157,7 @@ static Type *enum_specifier(Token **rest, Token *tok) {
       {
         assert(cgs_equal(strvtok(name), prefixed_variant)); // its capture-scope, get_prefixed_ident should not modify it
         consider_ident_for_all_capture_prefix_scopes((name), vsc, false);
+        push_np_var(global_np_scope->scope.apply_scope.np, vsc, strvtok(name));
       }
       else
       {
@@ -5983,6 +5988,7 @@ static Node *parse_typedef(Token **rest, Token *tok, Type *basety, VarAttr *attr
       if(np_scope_stack->is_capture)
       {
         consider_ident_for_all_capture_prefix_scopes(name, vsc, false);
+        push_np_var(global_np_scope->scope.apply_scope.np, vsc, strvtok(name));
       }
       else
       {
