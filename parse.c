@@ -519,7 +519,8 @@ static Nameprefix *get_np_from_access_starting_from(Token *tok, Nameprefix *star
   StrViewArray sva = strv_arr_from_carr(access.data, access.size);
   DStr dst = dstr_init();
   cgs_join(&dst, sva, "::");
-  cgs_sprint_append(&dst, "::", entry_ref[0]->name);
+  if(entry_ref)
+    cgs_sprint_append(&dst, "::", entry_ref[0]->name);
   error_tok(tok, "%s does not exist", dst.chars);
 }
 
@@ -6517,7 +6518,7 @@ Token *parse_np(Token *tok)
   
   if(parent != NULL)
   {
-    if(!cgs_starts_with(
+    if(0&&!cgs_starts_with(
         unquote(np->prefix),
         unquote(parent->prefix)
        )
