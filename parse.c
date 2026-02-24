@@ -1130,6 +1130,7 @@ static void consider_ident_for_all_capture_prefix_scopes(Token *tok, void *k, bo
           error_tok(tok, "Nameprefix %s already contains tag %s", full_name.chars, cgs_dup(tokv).chars);
         }
         
+        // TODO this loops, as in all mappings are considered, not only first-match
         is_tag ? push_np_tag(np, k, unprefixed) : push_np_var(np, k, unprefixed);
       }
     }
@@ -6666,8 +6667,8 @@ Token *parse_np_scope(Token *tok)
 Obj *parse(Token *tok) {
   Obj *glb_head = globals;
 
-  // TODO should prefixed symbols be added to _Global?
-  // e.g. A__foo() of A::foo, should _Global contain A__foo? currently no
+  // TODO restrict _Nameprefix ... should error out if _Apply _Nameprefix scope would add something that wasn't registered
+  // but in _Capture _Nameprefix, it just ignores stuff it wouldn't have added
   Nameprefix *global_np = calloc(1, sizeof(Nameprefix));
   NPVec_push(&outer_nps, global_np);
   global_np->name = strv("_Global");
