@@ -1130,8 +1130,8 @@ static void consider_ident_for_all_capture_prefix_scopes(Token *tok, void *k, bo
           error_tok(tok, "Nameprefix %s already contains tag %s", full_name.chars, cgs_dup(tokv).chars);
         }
         
-        // TODO this loops, as in all mappings are considered, not only first-match
         is_tag ? push_np_tag(np, k, unprefixed) : push_np_var(np, k, unprefixed);
+        break;
       }
     }
     np_scope = np_scope->up;
@@ -6506,6 +6506,10 @@ Token *parse_np(Token *tok)
   
   if(np == NULL)
   {
+    if(cgs_equal(npname, "_Global"))
+    {
+      error_tok(tok, "_Global _Nameprefix is reserved");
+    }
     np = create_np(parent, npname);
   }
   
