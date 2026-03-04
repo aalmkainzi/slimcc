@@ -204,6 +204,17 @@ check nameprefix 1
 echo '_Nameprefix A = "A_"; _Apply _Nameprefix A { int i; void foo(){ int j = i; j = A::i; j = A_i; } } ' | $testcc -o- -S -xc -
 check nameprefix
 
+echo '_Nameprefix A = "A_"; _Apply _Nameprefix A { struct S { int i; }; } void foo(){ struct A::S a1 = {0}; struct A_S a2 = a1; } ' | $testcc -o- -S -xc -
+check nameprefix
+
+echo ' _Nameprefix A = "A_"; _Apply _Nameprefix A { struct S { int i; } mys; } void foo(){ struct A::S a1 = {0}; struct A_S a2 = a1; struct _Global::A_S a3 = A_mys = A::mys = _Global::A_mys; }' | $testcc -o- -S -xc -
+check nameprefix
+
+printf '#include <stdio.h>\nint main()\n{ _Global::FILE *s = stdout; }' | $testcc -o- -S -xc -
+check nameprefix
+
+#
+
 # -imacros
 cat << EOF > $tmp/foo.h
 JUNK

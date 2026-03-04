@@ -717,7 +717,7 @@ static void push_tag_scope(Token *tag, Type *ty) {
       
       push_np_tag(np, ty, strvtok(tag));
       if(np != global_np_scope->scope.apply_scope.np)
-        push_np_tag(global_np_scope->scope.apply_scope.np, ty, strvtok(tag));
+        push_np_tag(global_np_scope->scope.apply_scope.np, ty, strv(new_name));
     }
   }
   else
