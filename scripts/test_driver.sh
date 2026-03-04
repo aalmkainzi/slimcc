@@ -5,10 +5,14 @@ tmp=`mktemp -d /tmp/testcc-test-XXXXXX`
 trap 'rm -rf $tmp' INT TERM HUP EXIT
 
 check() {
-    if [ $? -eq 0 ]; then
-        echo "testing $1 ... passed"
+    local ret=$?             # capture the previous command’s exit code immediately
+    local name="$1"
+    local expected="${2:-0}" # default expected is 0
+
+    if [ $ret -eq $expected ]; then
+        echo "testing $name ... passed"
     else
-        echo "testing $1 ... failed"
+        echo "testing $name ... failed (expected $expected, got $ret)"
         exit 1
     fi
 }
@@ -163,6 +167,39 @@ check inline
 
 echo 'static inline void fn2(); static inline void fn1() { fn2(); } static inline void fn2() { fn1(); } void foo() { fn2(); }' | $testcc -o- -S -xc - | grep -q 'fn2'
 check inline
+
+echo '_Nameprefix A = "A__"; _Apply _Nameprefix A { void foo(){} } void bar() { A::foo(); A__foo(); }' | $testcc -o- -S -xc - | grep -q 'A__foo'
+check nameprefix
+
+echo '_Nameprefix A = "A__"; _Nameprefix A = "A__"; _Apply _Nameprefix A { void foo(){} } void bar() { A::foo(); A__foo(); _Global::A__foo(); _Global::A::foo(); }' | $testcc -o- -S -xc - | grep -q 'A__foo'
+check nameprefix
+
+echo '_Nameprefix A = "A__"; _Nameprefix A = "A_";' | $testcc -o- -S -xc -
+check nameprefix 1
+
+echo '_Nameprefix _Global = "";' | $testcc -o- -S -xc -
+check nameprefix
+
+echo '_Nameprefix A = "A__"; _Capture _Nameprefix A { void A__foo(){}; } int bar(){ A::foo(); A__foo(); _Global::A__foo(); _Global::A::foo(); }' | $testcc -o- -S -xc - | grep -q 'A__foo'
+check nameprefix
+
+echo '_Nameprefix A = "A__"; _Capture _Nameprefix A { _Capture _Nameprefix A{ _Capture _Nameprefix A{ void A__bar(){} } } void A__foo(){}; } int bar(){ A::foo(); A__foo(); _Global::A__foo(); _Global::A::foo(); A::bar(); A__bar(); _Global::A__bar(); _Global::A::bar();}' | $testcc -o- -S -xc - | grep -q 'A__foo'
+check nameprefix
+
+echo '_Nameprefix A = "A__"; _Nameprefix A::B = "AB__"; _Apply _Nameprefix A { _Apply _Nameprefix B { void foo(){} } } _Apply _Nameprefix A::B { void bar(){} } void baz(){ A::B::foo(); A::B::bar(); _Global::AB__foo(); _Global::A::B::bar(); } ' | $testcc -o- -S -xc - | grep -q 'AB__foo'
+check nameprefix
+
+echo '_Nameprefix A = "A__"; _Nameprefix B = "B__"; _Apply _Nameprefix A { _Apply _Nameprefix B { void foo(){} } }' | $testcc -o- -S -xc -
+check nameprefix 1
+
+echo '_Nameprefix int = "int__";' | $testcc -o- -S -xc -
+check nameprefix 1
+
+echo '_Nameprefix _Global = "g__";' | $testcc -o- -S -xc -
+check nameprefix 1
+
+echo '_Nameprefix A = "A_"; _Nameprefix A::_Global = "AG_";' | $testcc -o- -S -xc -
+check nameprefix 1
 
 # -imacros
 cat << EOF > $tmp/foo.h
