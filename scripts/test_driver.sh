@@ -201,6 +201,9 @@ check nameprefix 1
 echo '_Nameprefix A = "A_"; _Nameprefix A::_Global = "AG_";' | $testcc -o- -S -xc -
 check nameprefix 1
 
+echo '_Nameprefix A = "A_"; _Apply _Nameprefix A { int i; void foo(){ int j = i; j = A::i; j = A_i; } } ' | $testcc -o- -S -xc -
+check nameprefix
+
 # -imacros
 cat << EOF > $tmp/foo.h
 JUNK
