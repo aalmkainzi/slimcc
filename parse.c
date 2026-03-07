@@ -6296,7 +6296,7 @@ static void global_declaration(Token **rest, Token *tok, Type *basety, VarAttr *
       if (var->ty->kind == TY_ARRAY && var->ty->size < 0)
         var->ty = ty;
     } else {
-      var = ent->val = new_gvar(get_ident(name), ty);
+      var = ent->val = new_gvar(prefixed_name, ty);
       var->is_static = (attr->strg & SC_STATIC) || (attr->strg & SC_CONSTEXPR);
       var->is_tls = attr->strg & SC_THREAD;
     }
