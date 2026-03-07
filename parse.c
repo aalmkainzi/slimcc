@@ -6387,7 +6387,7 @@ enum { NOT_NP, NP_DECL, NP_ALIAS } get_np_kind(Token *tok)
 Nameprefix *get_np(Nameprefix *parent, StrView np)
 {
   NPVec *vec = &outer_nps;
-  if(parent != NULL)
+  if(parent != NULL && parent != global_np_scope->scope.apply_scope.np)
   {
     vec = &parent->nested_entries;
   }
