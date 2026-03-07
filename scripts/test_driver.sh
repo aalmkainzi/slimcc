@@ -216,6 +216,9 @@ check nameprefix
 echo '_Nameprefix A = "A_"; constexpr int i = 1; _Apply _Nameprefix A { constexpr int i = 2; _Static_assert(i == 2 && _Global::i == 1); } ' | $testcc -std=c23 -o- -S -xc -
 check nameprefix
 
+echo '_Nameprefix A = "A_"; constexpr int i = 1; constexpr int j = 3; _Apply _Nameprefix A { constexpr int i = 2; _Static_assert(i == 2); _Static_assert(_Global::A_i == 2); _Static_assert(_Global::A::i == 2); _Static_assert(_Global::j == 3); }' | $testcc -std=c23 -o- -S -xc -
+check nameprefix
+
 echo '_Nameprefix A = "A_"; _Nameprefix A::B = "g_"; _Capture _Nameprefix _Global::A { _Apply _Nameprefix _Global::A::B { int foo(){ return 2; } } _Capture _Nameprefix _Global { int i = 1; } int A_i = 3; } int main() { return _Global::A::i + _Global::A_i + A_i + i + _Global::i + g_foo() + _Global::g_foo() + _Global::A::B::foo() + A::B::foo(); }' | $testcc -std=c23 -o- -S -xc -
 check nameprefix
 
