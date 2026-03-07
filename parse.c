@@ -6524,7 +6524,7 @@ Token *parse_np(Token *tok)
     if(!cgs_equal(np->prefix, strvtok(tok)))
     {
       DStr full_name = get_np_full_name(np);
-      error_tok(tok, "Redeclaration of _Nameprefix %s with a different prefix: %s. Previously declared with: %s", full_name.chars, cgs_dup(strvtok(tok)).chars, np->prefix.chars);
+      error_tok(tok, "Redeclaration of _Nameprefix %s with a different prefix: %s. Previously declared with: %s", full_name.chars, cgs_dup(strvtok(tok)).chars, cgs_dup(np->prefix).chars);
     }
   }
   else
