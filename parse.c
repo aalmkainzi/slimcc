@@ -6648,6 +6648,17 @@ Token *parse_np_scope(Token *tok)
   }
   else
   {
+    Token *last_np_name = tok;
+    while(equal(last_np_name->next, "::"))
+    {
+      last_np_name = last_np_name->next;
+      last_np_name = skip(last_np_name, "::");
+    }
+    if(cgs_equal(strvtok(last_np_name), "_Global") && tok == last_np_name)
+    {
+      error_tok(last_np_name, "Can't open _Apply scopes for _Global");
+    }
+    
     ApplyPrefixScope *apply_scope = &new_scope->scope.apply_scope;
     if(np_scope_stack != NULL && !np_scope_stack->is_capture)
     {
