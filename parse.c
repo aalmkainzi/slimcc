@@ -345,6 +345,7 @@ static int64_t const_expr2(Token **rest, Token *tok, Type **ty);
 static Node *new_node(NodeKind kind, Token *tok);
 static Node *resolve_local_gotos(void);
 static void push_goto(Node *node);
+static char *get_ident(Token *tok);
 
 static StrView strvtok(Token *tok);
 static StrView unquote(StrView);
@@ -1027,7 +1028,10 @@ static NameprefixEntry *push_np_var(Nameprefix *np, VarScope *var, StrView name)
 }
 
 static void push_gvar_name(Token *name, Obj *var) {
-  char *prefixed = get_prefixed_ident(name);
+  char *prefixed =
+  scope->parent == NULL ?
+  get_prefixed_ident(name) :
+  get_ident(name);
   VarScope *new_var;
   VarScope *vsc = push_var_scope(prefixed, strlen(prefixed), var, &new_var);
   if (vsc && var != vsc->var)
@@ -6254,7 +6258,11 @@ static void global_declaration(Token **rest, Token *tok, Type *basety, VarAttr *
     Type *ty = declarator2(&tok, tok, basety, &name,
       &(DeclContext){.is_glob = !scope->parent});
 
-    char *prefixed_name = get_prefixed_ident(name);
+    char *prefixed_name =
+    scope->parent == NULL ?
+    get_prefixed_ident(name)
+    : get_ident(name)
+    ;
     
     if (ty->kind == TY_FUNC) {
       if (!name)

@@ -222,6 +222,9 @@ check nameprefix
 echo '_Nameprefix A = "A_"; _Nameprefix A::B = "g_"; _Capture _Nameprefix _Global::A { _Apply _Nameprefix _Global::A::B { int foo(){ return 2; } } _Capture _Nameprefix _Global { int i = 1; } int A_i = 3; } int main() { return _Global::A::i + _Global::A_i + A_i + i + _Global::i + g_foo() + _Global::g_foo() + _Global::A::B::foo() + A::B::foo(); }' | $testcc -std=c23 -o- -S -xc -
 check nameprefix
 
+echo '_Nameprefix A = "A_"; _Apply _Nameprefix A { int foo() { extern int i; return i; } } int i = 10; int main() { return A::foo(); } ' | $testcc -std=c23 -o- -xc -
+check nameprefix
+
 # -imacros
 cat << EOF > $tmp/foo.h
 JUNK
