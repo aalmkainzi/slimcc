@@ -6407,6 +6407,19 @@ Nameprefix *get_np(Nameprefix *parent, StrView np)
       return it.ref[0];
     }
   }
+  
+  // uncomment if we want aliases to be able to open scopes
+  // if(scope->parent == NULL)
+  // {
+  //   for(c_each(it, NPAliasSet, scope->np_aliases))
+  //   {
+  //     if(cgs_equal(it.ref->name, np))
+  //     {
+  //       return it.ref->np;
+  //     }
+  //   }
+  // }
+  
   return NULL;
 }
 
@@ -6581,7 +6594,6 @@ Nameprefix *get_np_by_name(Nameprefix *in_scope_of, Token **tokp)
   StrView np_name = strvtok(tok);
   tok = tok->next;
   Nameprefix *np = get_np(in_scope_of, np_name);
-  
   
   if(np == NULL)
   {
