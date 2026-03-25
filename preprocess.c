@@ -288,24 +288,6 @@ static Token *split_paren(Token **rest, Token *tok) {
   return split_paren2(rest, tok, NULL);
 }
 
-static Token *split_comma(Token **rest, Token *tok, Token *next) {
-  Token head = {0};
-  Token *cur = &head;
-  while (!equal(tok, ","))
-  {
-    cur = cur->next = tok;
-    tok = tok->next;
-  }
-  
-  if(next)
-    cur->next = next;
-  else
-    cur->next = new_eof(tok);
-  
-  *rest = tok;
-  return head.next;
-}
-
 static Token *split_bracket(Token **rest, Token *tok) {
   Token *start = tok;
   Token head = {0};
