@@ -958,6 +958,39 @@ static Token *subst(Token *tok, MacroContext *ctx) {
       
       continue;
     }
+    if(equal(tok, "__REPEAT_INTERNAL__") && consume(&tok, tok->next, "("))
+    {
+      MacroArg *n_arg = find_arg(&tok, tok, ctx);
+      Token *n_tok = read_const_expr(n_arg->tok);
+      int64_t n = eval_const_expr(n_tok);
+      
+      tok = skip(tok, ")");
+      
+      MacroArg *vaarg = &ctx->args[ctx->m->arg_cnt - 1];
+      
+      int level = 0;
+      for(int64_t i = 0; i < n ; i++)
+      {
+        Token *arg_iter = vaarg->tok;
+        while(!(level == 0 && equal(arg_iter, ")")) && arg_iter->kind != TK_EOF)
+        {
+          if(equal(arg_iter, "("))
+          {
+            level += 1;
+          }
+          if(equal(arg_iter, ")"))
+          {
+            level -= 1;
+          }
+          
+          cur = cur->next = copy_token(arg_iter);
+          arg_iter = arg_iter->next;
+        }
+      }
+      
+      continue;
+    }
+    
     if (equal(tok, "__VA_TAIL__") && consume(&tok, tok->next, "(")) {
       Macro *tail_m = NULL;
       Token *rparen = NULL;
@@ -1962,6 +1995,7 @@ void init_macros(void) {
 
   read_macro_definition(&(Token*){}, tokenize(new_file("<built-in>", "__VA_SLICE__(s,l,...) __VA_SLICE_INTERNAL__(s,l)\n"), NULL, NULL));
   read_macro_definition(&(Token*){}, tokenize(new_file("<built-in>", "__VA_COUNT__(...) __VA_COUNT_INTERNAL__()\n"), NULL, NULL));
+  read_macro_definition(&(Token*){}, tokenize(new_file("<built-in>", "__REPEAT__(n, ...) __REPEAT_INTERNAL__(n)\n"), NULL, NULL));
   
   add_builtin("__DATE__", date_macro, true);
   add_builtin("__TIME__", time_macro, true);
