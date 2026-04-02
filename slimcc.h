@@ -128,11 +128,6 @@ void *ast_arena_calloc(size_t sz);
 
 bool check_mem_usage(void);
 
-extern Arena ast_arena;
-extern Arena node_arena;
-extern Arena pp_arena;
-extern bool free_alloc;
-
 //
 // hashmap.c
 //
@@ -331,8 +326,6 @@ Token *preprocess(char *file, StringArray *incls, StringArray *macros);
 Token *prepare_parse(Token *tok);
 Token *skip_line(Token *tok);
 bool is_pragma(Token **rest, Token *tok);
-extern Token *last_alloc_tok;
-extern Token *tok_freelist;
 
 //
 // parse.c
@@ -804,38 +797,6 @@ struct Member {
   int bit_width;
 };
 
-extern Type *ty_void;
-extern Type *ty_bool;
-extern Type *ty_nullptr;
-
-extern Type *ty_pchar;
-
-extern Type *ty_char;
-extern Type *ty_short;
-extern Type *ty_int;
-extern Type *ty_long;
-extern Type *ty_llong;
-
-extern Type *ty_uchar;
-extern Type *ty_ushort;
-extern Type *ty_uint;
-extern Type *ty_ulong;
-extern Type *ty_ullong;
-
-extern Type *ty_float;
-extern Type *ty_double;
-extern Type *ty_ldouble;
-
-extern Type *ty_size_t;
-extern Type *ty_ptrdiff_t;
-
-extern Type *ty_char16_t;
-extern Type *ty_char32_t;
-extern Type *ty_wchar_t;
-
-extern Type *enum_ty[8];
-extern EnumType ety_of_int;
-
 bool is_pow_of_two(uint64_t val);
 bool is_integer(Type *ty);
 bool is_flonum(Type *ty);
@@ -967,5 +928,47 @@ extern bool opt_nolibc;
 extern char *default_ld;
 extern char *default_as;
 extern char *dumpmachine_str;
+
+extern Type *ty_void;
+extern Type *ty_bool;
+extern Type *ty_nullptr;
+
+extern Type *ty_pchar;
+
+extern Type *ty_char;
+extern Type *ty_short;
+extern Type *ty_int;
+extern Type *ty_long;
+extern Type *ty_llong;
+
+extern Type *ty_uchar;
+extern Type *ty_ushort;
+extern Type *ty_uint;
+extern Type *ty_ulong;
+extern Type *ty_ullong;
+
+extern Type *ty_float;
+extern Type *ty_double;
+extern Type *ty_ldouble;
+
+extern Type *ty_size_t;
+extern Type *ty_ptrdiff_t;
+
+extern Type *ty_char16_t;
+extern Type *ty_char32_t;
+extern Type *ty_wchar_t;
+
+extern Type *enum_ty[8];
+extern EnumType ety_of_int;
+
+typedef struct SlimccCtx
+{
+  Arena ast_arena;
+  Arena node_arena;
+  Arena pp_arena;
+  bool free_alloc;
+  struct Token *last_alloc_tok;
+  struct Token *tok_freelist;
+} SlimccCtx;
 
 #endif
