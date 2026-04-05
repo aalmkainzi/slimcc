@@ -883,51 +883,41 @@ void run_assembler_gnustyle(StringArray *as_args, char *input, char *output);
 void run_linker_gnustyle(StringArray *paths, StringArray *inputs, char *output,
                          char *ldso_path, char *libpath, char *gcclibpath);
 
-extern char *argv0;
-extern StringArray include_paths;
-extern StringArray iquote_paths;
-extern StringArray display_files;
-extern bool opt_E;
-extern bool opt_dM;
-extern bool opt_fpic;
-extern bool opt_fpie;
-extern bool opt_femulated_tls;
-extern bool opt_use_plt;
-extern bool opt_fcommon;
-extern bool opt_optimize;
-extern bool opt_reuse_stack;
-extern bool opt_g;
-extern bool opt_func_sections;
-extern bool opt_data_sections;
-extern bool opt_werror;
-extern char *opt_visibility;
-extern bool opt_cc1_asm_pp;
-extern StdVer opt_std;
-extern bool is_iso_std;
-extern bool opt_fdefer_ts;
-extern bool opt_short_enums;
-extern bool opt_gnu_keywords;
-extern bool opt_gnu89_inline;
-extern bool opt_ms_anon_struct;
-extern bool opt_disable_visibility;
-extern bool opt_fake_always_inline;
+typedef struct {
+  char *arg;
+  bool is_def;
+} MacroChange;
 
-extern bool opt_pie;
-extern bool opt_nopie;
-extern bool opt_pthread;
-extern bool opt_r;
-extern bool opt_rdynamic;
-extern bool opt_static;
-extern bool opt_static_pie;
-extern bool opt_static_libgcc;
-extern bool opt_shared;
-extern bool opt_s;
-extern bool opt_nostartfiles;
-extern bool opt_nodefaultlibs;
-extern bool opt_nolibc;
-extern char *default_ld;
-extern char *default_as;
-extern char *dumpmachine_str;
+typedef struct {
+  MacroChange *data;
+  int capacity;
+  int len;
+} MacroChangeArr;
+
+
+typedef struct SlimccOptions
+{
+  StringArray include_paths;
+  StringArray iquote_paths;
+  StringArray display_files;
+  bool opt_werror;
+  char *opt_visibility;
+  StdVer opt_std;
+  bool is_iso_std;
+  bool opt_fdefer_ts;
+  bool opt_short_enums;
+  bool opt_gnu_keywords;
+  bool opt_ms_anon_struct;
+  
+  StringArray opt_imacros;
+  StringArray opt_include;
+  
+  StringArray input_args;
+  StringArray sysincl_paths;
+  MacroChangeArr macrodefs;
+  int incl_cnt;
+  char *argv0;
+} SlimccOptions;
 
 extern Type *ty_void;
 extern Type *ty_bool;

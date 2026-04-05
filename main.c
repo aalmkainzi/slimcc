@@ -17,91 +17,6 @@ typedef enum {
   LT_PIE,
 } LinkType;
 
-typedef struct {
-  char *arg;
-  bool is_def;
-} MacroChange;
-
-typedef struct {
-  MacroChange *data;
-  int capacity;
-  int len;
-} MacroChangeArr;
-
-StringArray include_paths;
-StringArray iquote_paths;
-StringArray display_files;
-bool opt_fcommon;
-bool opt_fpic;
-bool opt_fpie;
-bool opt_femulated_tls;
-bool opt_use_plt = true;
-bool opt_optimize = true;
-bool opt_reuse_stack = true;
-bool opt_g;
-bool opt_func_sections;
-bool opt_data_sections;
-bool opt_werror;
-bool opt_cc1_asm_pp;
-char *opt_visibility;
-StdVer opt_std = STD_C17;
-bool is_iso_std;
-bool opt_fdefer_ts;
-bool opt_short_enums;
-bool opt_gnu_keywords;
-bool opt_gnu89_inline;
-bool opt_ms_anon_struct;
-bool opt_disable_visibility;
-bool opt_fake_always_inline;
-
-static StringArray opt_imacros;
-static StringArray opt_include;
-bool opt_E;
-bool opt_dM;
-static bool opt_P;
-static bool opt_M;
-static bool opt_MM;
-static bool opt_MD;
-static bool opt_MMD;
-static bool opt_MG;
-static bool opt_MP;
-static bool opt_S;
-static bool opt_c;
-static bool opt_verbose;
-static bool opt_hash_hash_hash;
-bool opt_pie;
-bool opt_nopie;
-bool opt_pthread;
-bool opt_r;
-bool opt_rdynamic;
-bool opt_static;
-bool opt_static_pie;
-bool opt_static_libgcc;
-bool opt_shared;
-bool opt_s;
-bool opt_nostartfiles;
-bool opt_nodefaultlibs;
-bool opt_nolibc;
-char *default_ld = "ld";
-char *default_as = "as";
-char *dumpmachine_str;
-static char *opt_use_ld;
-static char *opt_use_as;
-static char *opt_MF;
-static char *opt_MT;
-static char *opt_o;
-
-static StringArray ld_paths;
-static StringArray input_args;
-static StringArray sysincl_paths;
-static StringArray dep_files;
-static StringArray tmpfiles;
-static StringArray as_args;
-static MacroChangeArr macrodefs;
-static int incl_cnt;
-
-char *argv0;
-
 static void cc1(char *input_file, char *output, bool is_asm_pp);
 
 static void version(void) {
@@ -328,7 +243,7 @@ static void build_ld_paths(char *opt_B, StringArray *paths) {
   platform_search_dirs(&ld_paths);
 }
 
-static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork) {
+static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork, SlimccOptions *opts) {
   char *arg;
   int input_cnt = 0;
   char *opt_B = NULL;
@@ -344,29 +259,9 @@ static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork) {
       continue;
 
     if (*argv[i] != '-' || argv[i][1] == '\0') {
-      strarray_push(&input_args, argv[i]);
+      strarray_push(&opts->input_args, argv[i]);
       input_cnt++;
       continue;
-    }
-
-    if (!strcmp(argv[i], "-###")) {
-      opt_hash_hash_hash = true;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--verbose")) {
-      opt_verbose = true;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "--help")) {
-      puts("slimcc [ -o <path> ] <file>");
-      exit(0);
-    }
-
-    if (!strcmp(argv[i], "--version")) {
-      version();
-      exit(0);
     }
 
     if (!strcmp(argv[i], "-dumpmachine")) {
@@ -714,16 +609,6 @@ static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork) {
       continue;
     }
 
-    if (set_true(argv[i], "-nostartfiles", &opt_nostartfiles) ||
-        set_true(argv[i], "-nodefaultlibs", &opt_nodefaultlibs) ||
-        set_true(argv[i], "-nolibc", &opt_nolibc))
-      continue;
-
-    if (!strcmp(argv[i], "-nostdlib")) {
-      opt_nostartfiles = opt_nodefaultlibs = true;
-      continue;
-    }
-
     if (set_bool(argv[i], true, "-Werror", &opt_werror) ||
         set_bool(argv[i], false, "-Wno-error", &opt_werror))
       continue;
@@ -767,9 +652,6 @@ static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork) {
 
   if (!opt_E && opt_dM)
     error("option -dM without -E not supported");
-
-  if (opt_MG && !opt_M)
-    error("option -MG must be used with -M or -MM");
 
   if (opt_disable_visibility && opt_visibility)
     error("-fvisibility disabled with -fdisable-visibility");

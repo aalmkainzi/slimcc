@@ -181,126 +181,129 @@ typedef struct ParseCtx {
   HashMap symbols;
   FuncContext *fnctx;
   bool *eval_recover;
+  
+  SlimccOptions *opts;
+  SlimccCtx *slimmcc_ctx;
 } ParseCtx;
 
 static bool is_type_kw(TokenKind kind);
-static bool is_typename(Token *tok);
+static bool is_typename(ParseCtx *ctx, Token *tok);
 static bool comma_list(Token **rest, Token **tok_rest, char *end, bool skip_comma);
-static Type *typename(Token **rest, Token *tok);
-static Type *typename2(Token **rest, Token *tok, VarAttr *attr);
-static Type *enum_specifier(Token **rest, Token *tok);
-static Type *typeof_specifier(Token **rest, Token *tok, VarAttr *attr);
-static Type *declarator(Token **rest, Token *tok, Type *ty, Token **name_tok);
-static Type *declarator2(Token **rest, Token *tok, Type *ty, Token **name_tok,
+static Type *typename(ParseCtx *ctx, Token **rest, Token *tok);
+static Type *typename2(ParseCtx *ctx, Token **rest, Token *tok, VarAttr *attr);
+static Type *enum_specifier(ParseCtx *ctx, Token **rest, Token *tok);
+static Type *typeof_specifier(ParseCtx *pctx, Token **rest, Token *tok, VarAttr *attr);
+static Type *declarator(ParseCtx *pctx, Token **rest, Token *tok, Type *ty, Token **name_tok);
+static Type *declarator2(ParseCtx *pctx, Token **rest, Token *tok, Type *ty, Token **name_tok,
                          DeclContext *ctx);
-static void list_initializer(Token **rest, Token *tok, Initializer *init, int i);
-static void initializer2(Token **rest, Token *tok, Initializer *init);
-static void initializer3(Token **rest, Token *tok, Initializer *init, Node *expr);
-static Node *lvar_initializer(Token **rest, Token *tok, Obj *var);
-static void gvar_initializer(Token **rest, Token *tok, Obj *var);
-static void write_gvar_data(Relocation **cur, Initializer *init, char *buf, int offset,
+static void list_initializer(ParseCtx *pctx, Token **rest, Token *tok, Initializer *init, int i);
+static void initializer2(ParseCtx *pctx, Token **rest, Token *tok, Initializer *init);
+static void initializer3(ParseCtx *pctx, Token **rest, Token *tok, Initializer *init, Node *expr);
+static Node *lvar_initializer(ParseCtx *pctx, Token **rest, Token *tok, Obj *var);
+static void gvar_initializer(ParseCtx *pctx, Token **rest, Token *tok, Obj *var);
+static void write_gvar_data(ParseCtx *pctx, Relocation **cur, Initializer *init, char *buf, int offset,
                             EvalKind ev_kind);
-static void constexpr_initializer(Token **rest, Token *tok, Obj *init_var, Obj *var);
-static Node *compound_stmt(Token **rest, Token *tok, NodeKind kind);
-static Node *stmt(Token **rest, Token *tok, Token *label_list);
-static Node *expr_stmt(Token **rest, Token *tok);
-static Node *expression(Token **rest, Token *tok);
+static void constexpr_initializer(ParseCtx *pctx, Token **rest, Token *tok, Obj *init_var, Obj *var);
+static Node *compound_stmt(ParseCtx *pctx, Token **rest, Token *tok, NodeKind kind);
+static Node *stmt(ParseCtx *pctx, Token **rest, Token *tok, Token *label_list);
+static Node *expr_stmt(ParseCtx *pctx, Token **rest, Token *tok);
+static Node *expression(ParseCtx *pctx, Token **rest, Token *tok);
 static int64_t align_expr(Token **rest, Token *tok);
 static int64_t eval(Node *node);
 static int64_t eval2(Node *node, EvalContext *ctx);
 static Obj *eval_var(Node *node, int *ofs, bool let_volatile);
-static Node *assign(Token **rest, Token *tok);
+static Node *assign(ParseCtx *pctx, Token **rest, Token *tok);
 static long_double_t eval_double(Node *node);
 static uint64_t *eval_bitint(Node *node);
 static uint64_t *eval_bitint_clean(Node *node);
-static Node *conditional(Token **rest, Token *tok);
+static Node *conditional(ParseCtx *pctx, Token **rest, Token *tok);
 static Node *new_add(Node *lhs, Node *rhs, Token *tok);
 static Node *new_sub(Node *lhs, Node *rhs, Token *tok);
-static Node *binary(Token **rest, Token *tok, Preced stop);
+static Node *binary(ParseCtx *pctx, Token **rest, Token *tok, Preced stop);
 static Member *get_struct_member(Type *ty, Token *tok);
 static Type *struct_union_decl(Token **rest, Token *tok, TypeKind kind);
 static Type *struct_decl(Type *ty, int alt_align, int pack_align);
 static Type *union_decl(Type *ty, int alt_align, int pack_align);
 static Node *postfix(Node *node, Token **rest, Token *tok);
-static Node *funcall(Token **rest, Token *tok, Node *node);
-static Node *unary(Token **rest, Token *tok);
-static Node *primary(Token **rest, Token *tok);
-static Node *parse_typedef(Token **rest, Token *tok, Type *basety, VarAttr *attr);
-static Obj *func_prototype2(Type *ty, VarAttr *attr, Token *name);
-static Obj *func_prototype(Token **rest, Token *tok, Token *name, Type *ty, VarAttr *attr);
-static void global_declaration(Token **rest, Token *tok, Type *basety, VarAttr *attr);
+static Node *funcall(ParseCtx *pctx, Token **rest, Token *tok, Node *node);
+static Node *unary(ParseCtx *pctx, Token **rest, Token *tok);
+static Node *primary(ParseCtx *pctx, Token **rest, Token *tok);
+static Node *parse_typedef(ParseCtx *pctx, Token **rest, Token *tok, Type *basety, VarAttr *attr);
+static Obj *func_prototype2(ParseCtx *pctx, Type *ty, VarAttr *attr, Token *name);
+static Obj *func_prototype(ParseCtx *pctx, Token **rest, Token *tok, Token *name, Type *ty, VarAttr *attr);
+static void global_declaration(ParseCtx *pctx, Token **rest, Token *tok, Type *basety, VarAttr *attr);
 static Node *calc_vla(Type *ty, Token *tok);
 static Node *calc_vla2(Type *ty, Token *tok, VarAttr *attr);
-static int64_t const_expr2(Token **rest, Token *tok, Type **ty);
+static int64_t const_expr2(ParseCtx *pctx, Token **rest, Token *tok, Type **ty);
 static Node *new_node(NodeKind kind, Token *tok);
 static Node *resolve_local_gotos(void);
 static void push_goto(Node *node);
 
-static bool is_const_context(void) {
-  return fnctx ? fnctx->is_static_init_context : !scope->parent;
+static bool is_const_context(ParseCtx *pctx) {
+  return pctx->fnctx ? pctx->fnctx->is_static_init_context : !pctx->scope->parent;
 }
 
-static void enter_scope(void) {
+static void enter_scope(ParseCtx *pctx) {
   Scope *sc = ast_arena_calloc(sizeof(Scope));
-  sc->parent = scope;
-  sc->sibling_next = scope->children;
-  scope = scope->children = sc;
+  sc->parent = pctx->scope;
+  sc->sibling_next = pctx->scope->children;
+  pctx->scope = pctx->scope->children = sc;
 }
 
-static void enter_isolated_scope(void) {
+static void enter_isolated_scope(ParseCtx *pctx) {
   Scope *sc = ast_arena_calloc(sizeof(Scope));
-  sc->parent = scope;
-  scope = sc;
+  sc->parent = pctx->scope;
+  pctx->scope = sc;
 }
 
-static void enter_fn_scope(Type *fn_ty) {
-  enter_isolated_scope();
-  scope->is_fn_base = true;
-  fn_ty->scopes = scope;
+static void enter_fn_scope(ParseCtx *pctx, Type *fn_ty) {
+  enter_isolated_scope(pctx);
+  pctx->scope->is_fn_base = true;
+  fn_ty->scopes = pctx->scope;
 }
 
-static void enter_tmp_scope(void) {
-  enter_scope();
-  scope->is_temporary = true;
+static void enter_tmp_scope(ParseCtx *pctx) {
+  enter_scope(pctx);
+  pctx->scope->is_temporary = true;
 }
 
-static bool leave_scope(void) {
-  if (fnctx) {
-    free(scope->vars.buckets);
-    free(scope->tags.buckets);
+static bool leave_scope(ParseCtx *pctx) {
+  if (pctx->fnctx) {
+    free(pctx->scope->vars.buckets);
+    free(pctx->scope->tags.buckets);
   }
-  bool has_label = scope->has_label;
-  scope = scope->parent;
-  scope->has_label |= has_label;
+  bool has_label = pctx->scope->has_label;
+  pctx->scope = pctx->scope->parent;
+  pctx->scope->has_label |= has_label;
   return !has_label;
 }
 
-static DeferStmt *enter_stmt_scope(void) {
-  enter_scope();
-  scope->is_stmt = true;
-  return fnctx->defr;
+static DeferStmt *enter_stmt_scope(ParseCtx *pctx) {
+  enter_scope(pctx);
+  pctx->scope->is_stmt = true;
+  return pctx->fnctx->defr;
 }
 
-static Node *leave_stmt_scope(DeferStmt *defr, Node *stmt_node) {
-  bool no_label = leave_scope();
+static Node *leave_stmt_scope(ParseCtx *pctx, DeferStmt *defr, Node *stmt_node) {
+  bool no_label = leave_scope(pctx);
 
   if (stmt_node->kind == ND_RETURN || stmt_node->kind == ND_GOTO)
-    fnctx->defr = defr;
+    pctx->fnctx->defr = defr;
 
-  if (defr == fnctx->defr && !stmt_node->next) {
+  if (defr == pctx->fnctx->defr && !stmt_node->next) {
     stmt_node->no_label = no_label;
     return stmt_node;
   }
   Node *blk = new_node(ND_BLOCK, stmt_node->tok);
-  blk->dfr_from = fnctx->defr;
-  blk->dfr_dest = fnctx->defr = defr;
+  blk->dfr_from = pctx->fnctx->defr;
+  blk->dfr_dest = pctx->fnctx->defr = defr;
   blk->blk.body = stmt_node;
   blk->no_label = no_label;
   return blk;
 }
 
-static Scope *base_scope(void) {
-  Scope *sc = scope;
+static Scope *base_scope(ParseCtx *pctx) {
+  Scope *sc = pctx->scope;
   while (sc->parent && !sc->is_fn_base)
     sc = sc->parent;
   if (!sc->is_fn_base)
@@ -308,15 +311,15 @@ static Scope *base_scope(void) {
   return sc;
 }
 
-static Scope *decl_scope(void) {
-  Scope *sc = scope;
-  while (sc->is_temporary || (sc->is_stmt && opt_std == STD_C89))
+static Scope *decl_scope(ParseCtx *pctx) {
+  Scope *sc = pctx->scope;
+  while (sc->is_temporary || (sc->is_stmt && pctx->opts->opt_std == STD_C89))
     sc = sc->parent;
   return sc;
 }
 
-static VarScope *find_var(Token *tok) {
-  for (Scope *sc = scope; sc; sc = sc->parent) {
+static VarScope *find_var(ParseCtx *pctx, Token *tok) {
+  for (Scope *sc = pctx->scope; sc; sc = sc->parent) {
     VarScope *sc2 = hashmap_get2(&sc->vars, tok->loc, tok->len);
     if (sc2)
       return sc2;
@@ -324,8 +327,8 @@ static VarScope *find_var(Token *tok) {
   return NULL;
 }
 
-static Type *find_tag(Token *tok) {
-  for (Scope *sc = scope; sc; sc = sc->parent) {
+static Type *find_tag(ParseCtx *pctx, Token *tok) {
+  for (Scope *sc = pctx->scope; sc; sc = sc->parent) {
     Type *ty = hashmap_get2(&sc->tags, tok->loc, tok->len);
     if (ty)
       return ty;
@@ -333,18 +336,18 @@ static Type *find_tag(Token *tok) {
   return NULL;
 }
 
-static Type *find_tag_in_scope(Token *tok) {
-  return hashmap_get2(&decl_scope()->tags, tok->loc, tok->len);
+static Type *find_tag_in_scope(ParseCtx *pctx, Token *tok) {
+  return hashmap_get2(&decl_scope(pctx)->tags, tok->loc, tok->len);
 }
 
-static void push_tag_scope(Token *tag, Type *ty) {
+static void push_tag_scope(ParseCtx *pctx, Token *tag, Type *ty) {
   tag->is_live = true;
   ty->tag = tag;
-  hashmap_put2(&decl_scope()->tags, tag->loc, tag->len, ty);
+  hashmap_put2(&decl_scope(pctx)->tags, tag->loc, tag->len, ty);
 }
 
-Obj *get_symbol_var(char *name) {
-  return hashmap_get(&symbols, name);
+Obj *get_symbol_var(ParseCtx *pctx, char *name) {
+  return hashmap_get(&pctx->symbols, name);
 }
 
 static bool less_eq(Type *ty, int64_t lhs, int64_t rhs) {
@@ -372,8 +375,8 @@ static bool is_vm_ty(Type *ty) {
   return false;
 }
 
-static bool is_func_def(Token *end_tok) {
-  return equal(end_tok, "{") || is_typename(end_tok);
+static bool is_func_def(ParseCtx *pctx, Token *end_tok) {
+  return equal(end_tok, "{") || is_typename(pctx, end_tok);
 }
 
 bool equal_tok(Token *a, Token *b) {
@@ -384,8 +387,8 @@ static bool equal_substr(char *loc, size_t len, char *op) {
   return strlen(op) == len && !memcmp(loc, op, len);
 }
 
-static Node *new_node(NodeKind kind, Token *tok) {
-  Node *node = arena_calloc(&node_arena, sizeof(Node));
+static Node *new_node(SlimccCtx *sctx, NodeKind kind, Token *tok) {
+  Node *node = arena_calloc(&sctx->node_arena, sizeof(Node));
   node->kind = kind;
   node->tok = tok;
   return node;
@@ -436,10 +439,10 @@ static Node *new_var_node(Obj *var, Token *tok) {
   return node;
 }
 
-static Node *new_label(Token *tok) {
+static Node *new_label(ParseCtx *pctx, Token *tok) {
   Node *node = new_node(ND_LABEL, tok);
-  node->dfr_from = fnctx->defr;
-  scope->has_label = true;
+  node->dfr_from = pctx->fnctx->defr;
+  pctx->scope->has_label = true;
   return node;
 }
 
@@ -481,7 +484,7 @@ static bool invalid_cast(Node *node, Type *to) {
   return false;
 }
 
-Node *new_cast(Node *expr, Type *ty) {
+Node *new_cast(SlimccCtx *sctx, Node *expr, Type *ty) {
   add_type(expr);
   ty = unqual(ty);
 
@@ -510,21 +513,7 @@ Node *new_cast(Node *expr, Type *ty) {
   }
 
   Node tmp_node = {.kind = ND_CAST, .tok = expr->tok, .m.lhs = expr, .ty = ty};
-  if (opt_optimize) {
-    int64_t val = 0;
-    if (is_integer(ty) && is_const_expr(&tmp_node, &val)) {
-      expr->kind = ND_NUM;
-      expr->num.val = val;
-      expr->ty = ty;
-      return expr;
-    }
-
-    if (is_redundant_cast(expr, ty)) {
-      expr->ty = ty;
-      return expr;
-    }
-  }
-  Node *node = arena_malloc(&node_arena, sizeof(Node));
+  Node *node = arena_malloc(&sctx->node_arena, sizeof(Node));
   *node = tmp_node;
   return node;
 }
@@ -650,8 +639,8 @@ static void prepare_struct_init(Initializer *init, Type *ty) {
   }
 }
 
-static VarScope *push_var_scope(char *key, int keylen, Obj *var) {
-  HashEntry *ent = hashmap_get_or_insert(&decl_scope()->vars, key, keylen);
+static VarScope *push_var_scope(ParseCtx *pctx, char *key, int keylen, Obj *var) {
+  HashEntry *ent = hashmap_get_or_insert(&decl_scope(pctx)->vars, key, keylen);
   VarScope *vsc = ent->val;
   if (vsc)
     return vsc;
@@ -660,18 +649,18 @@ static VarScope *push_var_scope(char *key, int keylen, Obj *var) {
   return NULL;
 }
 
-static void push_var_name2(char *key, int keylen, Token *tok, Obj *var) {
-  VarScope *vsc = push_var_scope(key, keylen, var);
+static void push_var_name2(ParseCtx *pctx, char *key, int keylen, Token *tok, Obj *var) {
+  VarScope *vsc = push_var_scope(pctx, key, keylen, var);
   if (vsc)
     error_tok(tok, "redeclaration of '%.*s'", keylen, key);
 }
 
-static void push_var_name(Token *name, Obj *var) {
-  push_var_name2(name->loc, name->len, name, var);
+static void push_var_name(ParseCtx *pctx, Token *name, Obj *var) {
+  push_var_name2(pctx, name->loc, name->len, name, var);
 }
 
-static void push_gvar_name(Token *name, Obj *var) {
-  VarScope *vsc = push_var_scope(name->loc, name->len, var);
+static void push_gvar_name(ParseCtx *pctx, Token *name, Obj *var) {
+  VarScope *vsc = push_var_scope(pctx, name->loc, name->len, var);
   if (vsc && var != vsc->var)
     error_tok(name, "invalid redefinition of '%.*s'", name->len, name->loc);
 }
@@ -690,8 +679,8 @@ static Obj *new_lvar2(Type *ty, Scope *sc) {
   return var;
 }
 
-Obj *new_lvar(Type *ty) {
-  return new_lvar2(ty, scope);
+Obj *new_lvar(ParseCtx *pctx, Type *ty) {
+  return new_lvar2(ty, pctx->scope);
 }
 
 static Obj *alloc_var(char *name, Type *ty) {
@@ -701,16 +690,16 @@ static Obj *alloc_var(char *name, Type *ty) {
   return var;
 }
 
-static Obj *new_param(char *name, Type *ty) {
+static Obj *new_param(ParseCtx *pctx, char *name, Type *ty) {
   Obj *var = alloc_var(name, ty);
   var->is_local = true;
-  var->next = scope->locals;
-  scope->locals = var;
+  var->next = pctx->scope->locals;
+  pctx->scope->locals = var;
   return var;
 }
 
-static Obj *new_gvar(char *name, Type *ty) {
-  return globals = globals->next = alloc_var(name, ty);
+static Obj *new_gvar(ParseCtx *pctx, char *name, Type *ty) {
+  return pctx->globals = pctx->globals->next = alloc_var(name, ty);
 }
 
 char *new_unique_name(void) {
@@ -718,34 +707,34 @@ char *new_unique_name(void) {
   return format(".L..%" PRIi64, id++);
 }
 
-static Obj *new_static_lvar(Type *ty) {
+static Obj *new_static_lvar(ParseCtx *pctx, Type *ty) {
   Obj *var = alloc_ast_var(ty);
   var->name = new_unique_name();
   var->is_definition = true;
   var->is_static = true;
   var->is_static_lvar = true;
-  var->next = fnctx->fn->static_lvars;
-  fnctx->fn->static_lvars = var;
+  var->next = pctx->fnctx->fn->static_lvars;
+  pctx->fnctx->fn->static_lvars = var;
   return var;
 }
 
-static Obj *new_anon_gvar(Type *ty) {
-  if (fnctx)
-    return new_static_lvar(ty);
-  Obj *var = new_gvar(new_unique_name(), ty);
+static Obj *new_anon_gvar(ParseCtx *pctx, Type *ty) {
+  if (pctx->fnctx)
+    return new_static_lvar(pctx, ty);
+  Obj *var = new_gvar(pctx, new_unique_name(), ty);
   var->is_definition = true;
   var->is_static = true;
   return var;
 }
 
-static DeferStmt *new_defr(DeferKind kind) {
+static DeferStmt *new_defr(ParseCtx *pctx, DeferKind kind) {
   DeferStmt *defr = ast_arena_calloc(sizeof(DeferStmt));
   defr->kind = kind;
-  if (fnctx->defr) {
-    defr->vla = fnctx->defr->vla;
-    defr->next = fnctx->defr;
+  if (pctx->fnctx->defr) {
+    defr->vla = pctx->fnctx->defr->vla;
+    defr->next = pctx->fnctx->defr;
   }
-  fnctx->defr = defr;
+  pctx->fnctx->defr = defr;
   return defr;
 }
 
@@ -755,9 +744,9 @@ static char *get_ident(Token *tok) {
   return strndup(tok->loc, tok->len);
 }
 
-static VarScope *find_typedef(Token *tok) {
+static VarScope *find_typedef(ParseCtx *pctx, Token *tok) {
   if (tok->kind == TK_IDENT) {
-    VarScope *sc = find_var(tok);
+    VarScope *sc = find_var(pctx, tok);
     if (sc && sc->type_def)
       return sc;
   }
@@ -871,7 +860,7 @@ static bool get_attr_val(Token *tok, int64_t *val) {
   return false;
 }
 
-static void attr_aligned(Token *loc, TokenKind kind, int *align) {
+static void attr_aligned(ParseCtx *pctx, Token *loc, TokenKind kind, int *align) {
   for (Token *tok = loc->attr_next; tok; tok = tok->attr_next) {
     if (tok->kind != kind)
       continue;
@@ -887,14 +876,14 @@ static void attr_aligned(Token *loc, TokenKind kind, int *align) {
   }
 }
 
-static void attr_cleanup(Token *loc, TokenKind kind, Obj **fn) {
+static void attr_cleanup(ParseCtx *pctx,Token *loc, TokenKind kind, Obj **fn) {
   if (*fn)
     return;
   for (Token *tok = loc->attr_next; tok; tok = tok->attr_next) {
     if (tok->kind != kind)
       continue;
     if (equal_ext(tok, "cleanup")) {
-      VarScope *sc = find_var(skip(tok->next, "("));
+      VarScope *sc = find_var(pctx, skip(tok->next, "("));
       if (!(sc && sc->var && sc->var->ty->kind == TY_FUNC))
         error_tok(tok, "cleanup function not found");
       *fn = sc->var;
@@ -913,7 +902,7 @@ static void apply_cdtor_attr(char *attr_name, Token *tok, bool *is_cdtor,
   }
 }
 
-static void cdtor_attr(Token *loc, TokenKind kind, char *name, bool *is_cdtor,
+static void cdtor_attr(ParseCtx *pctx, Token *loc, TokenKind kind, char *name, bool *is_cdtor,
                        uint16_t *priority) {
   for (Token *tok = loc->attr_next; tok; tok = tok->attr_next) {
     if (tok->kind != kind)
@@ -928,7 +917,7 @@ static void cdtor_attr(Token *loc, TokenKind kind, char *name, bool *is_cdtor,
   }
 }
 
-static void bool_attr(Token *loc, TokenKind kind, char *name, bool *b) {
+static void bool_attr(ParseCtx *pctx, Token *loc, TokenKind kind, char *name, bool *b) {
   for (Token *tok = loc->attr_next; tok; tok = tok->attr_next) {
     if (tok->kind == kind && equal_ext(tok, name)) {
       *b = true;
@@ -946,7 +935,7 @@ static void apply_str_attr(char *attr_name, Token *tok, char **var_str, char *at
     error_tok(tok, "conflict of attribute \'%s\'", attr_name);
 }
 
-static void str_attr(Token *loc, TokenKind kind, char *name, char **str) {
+static void str_attr(ParseCtx *pctx, Token *loc, TokenKind kind, char *name, char **str) {
   for (Token *tok = loc->attr_next; tok; tok = tok->attr_next) {
     if (tok->kind == kind && equal_ext(tok, name)) {
       Token *t;
@@ -957,36 +946,36 @@ static void str_attr(Token *loc, TokenKind kind, char *name, char **str) {
   }
 }
 
-static void tyspec_attr(Token *tok, VarAttr *attr, TokenKind kind) {
-  attr_aligned(tok, kind, &attr->align);
-  attr_cleanup(tok, kind, &attr->cleanup_fn);
-  bool_attr(tok, kind, "weak", &attr->is_weak);
-  bool_attr(tok, kind, "packed", &attr->is_packed);
-  bool_attr(tok, kind, "common", &attr->is_common);
-  bool_attr(tok, kind, "nocommon", &attr->is_nocommon);
-  bool_attr(tok, kind, "gnu_inline", &attr->is_gnu_inline);
-  bool_attr(tok, kind, "always_inline", &attr->is_always_inline);
-  bool_attr(tok, kind, "naked", &attr->is_naked);
-  bool_attr(tok, kind, "noreturn", &attr->is_noreturn);
-  bool_attr(tok, kind, "returns_twice", &attr->is_returns_twice);
-  bool_attr(tok, kind, "used", &attr->is_used);
-  cdtor_attr(tok, kind, "constructor", &attr->is_ctor, &attr->ctor_prior);
-  cdtor_attr(tok, kind, "destructor", &attr->is_dtor, &attr->dtor_prior);
-  str_attr(tok, kind, "alias", &attr->alias);
-  str_attr(tok, kind, "section", &attr->section);
-  str_attr(tok, kind, "visibility", &attr->visibility);
+static void tyspec_attr(ParseCtx *pctx, Token *tok, VarAttr *attr, TokenKind kind) {
+  attr_aligned(pctx, tok, kind, &attr->align);
+  attr_cleanup(pctx, tok, kind, &attr->cleanup_fn);
+  bool_attr(pctx, tok, kind, "weak", &attr->is_weak);
+  bool_attr(pctx, tok, kind, "packed", &attr->is_packed);
+  bool_attr(pctx, tok, kind, "common", &attr->is_common);
+  bool_attr(pctx, tok, kind, "nocommon", &attr->is_nocommon);
+  bool_attr(pctx, tok, kind, "gnu_inline", &attr->is_gnu_inline);
+  bool_attr(pctx, tok, kind, "always_inline", &attr->is_always_inline);
+  bool_attr(pctx, tok, kind, "naked", &attr->is_naked);
+  bool_attr(pctx, tok, kind, "noreturn", &attr->is_noreturn);
+  bool_attr(pctx, tok, kind, "returns_twice", &attr->is_returns_twice);
+  bool_attr(pctx, tok, kind, "used", &attr->is_used);
+  cdtor_attr(pctx, tok, kind, "constructor", &attr->is_ctor, &attr->ctor_prior);
+  cdtor_attr(pctx, tok, kind, "destructor", &attr->is_dtor, &attr->dtor_prior);
+  str_attr(pctx, tok, kind, "alias", &attr->alias);
+  str_attr(pctx, tok, kind, "section", &attr->section);
+  str_attr(pctx, tok, kind, "visibility", &attr->visibility);
 }
 
-#define DeclAttr(Fn, ...)                    \
-  do {                                       \
-    if (name) {                              \
-      Fn(name, TK_ATTR, __VA_ARGS__);        \
-      Fn(name->next, TK_BATTR, __VA_ARGS__); \
-    }                                        \
-    Fn(tok, TK_ATTR, __VA_ARGS__);           \
+#define DeclAttr(Fn, ...)                          \
+  do {                                             \
+    if (name) {                                    \
+      Fn(pctx, name, TK_ATTR, __VA_ARGS__);        \
+      Fn(pctx, name->next, TK_BATTR, __VA_ARGS__); \
+    }                                              \
+    Fn(pctx, tok, TK_ATTR, __VA_ARGS__);           \
   } while (0)
 
-static void symbol_attr(Token *name, Token *tok, VarAttr *attr, Obj *var) {
+static void symbol_attr(ParseCtx *pctx, Token *name, Token *tok, VarAttr *attr, Obj *var) {
   if (var->asm_name && (attr->strg & SC_REGISTER))
     error_tok(tok, "global register variables not supported");
 
@@ -1018,7 +1007,7 @@ static void symbol_attr(Token *name, Token *tok, VarAttr *attr, Obj *var) {
     error_tok(name, "conflict of attribute common/nocommon");
 }
 
-static void func_attr(Token *name, Token *tok, VarAttr *attr, Obj *fn) {
+static void func_attr(ParseCtx *pctx, Token *name, Token *tok, VarAttr *attr, Obj *fn) {
   apply_cdtor_attr("constructor", name, &fn->is_ctor, &fn->ctor_prior, attr->ctor_prior,
                    attr->is_ctor);
   DeclAttr(cdtor_attr, "constructor", &fn->is_ctor, &fn->ctor_prior);
@@ -1046,17 +1035,17 @@ static void func_attr(Token *name, Token *tok, VarAttr *attr, Obj *fn) {
   DeclAttr(bool_attr, "gnu_inline", &fn->is_gnu_inline);
 }
 
-static void mem_attr(Token *name, Token *tok, VarAttr *attr, Member *mem) {
+static void mem_attr(ParseCtx *pctx, Token *name, Token *tok, VarAttr *attr, Member *mem) {
   mem->is_packed |= attr->is_packed;
   DeclAttr(bool_attr, "packed", &mem->is_packed);
 }
 
-static void aligned_attr(Token *name, Token *tok, VarAttr *attr, int *align) {
+static void aligned_attr(ParseCtx *pctx, Token *name, Token *tok, VarAttr *attr, int *align) {
   DeclAttr(attr_aligned, align);
   *align = MAX(*align, attr->align);
 }
 
-static void cleanup_attr(Token *name, Token *tok, VarAttr *attr, Obj *var) {
+static void cleanup_attr(ParseCtx *pctx, Token *name, Token *tok, VarAttr *attr, Obj *var) {
   Obj *fn = attr->cleanup_fn;
   DeclAttr(attr_cleanup, &fn);
 
@@ -1071,9 +1060,9 @@ static void cleanup_attr(Token *name, Token *tok, VarAttr *attr, Obj *var) {
 
     n->call.args = alloc_ast_var(arg->ty);
     n->call.args->arg_expr = arg;
-    prepare_funcall(n, scope);
+    prepare_funcall(n, pctx->scope);
 
-    DeferStmt *defr2 = new_defr(DF_CLEANUP_FN);
+    DeferStmt *defr2 = new_defr(pctx, DF_CLEANUP_FN);
     defr2->cleanup_fn = n;
   }
 }
@@ -1095,7 +1084,7 @@ static bool chk_storage_class(uint8_t msk, StorageClass allow) {
               (bool)(msk & SC_TYPEDEF));
 }
 
-static Type *declspec(Token **rest, Token *tok, VarAttr *attr, StorageClass ctx) {
+static Type *declspec(ParseCtx *pctx, Token **rest, Token *tok, VarAttr *attr, StorageClass ctx) {
   enum {
     VOID = 1 << 0,
     BOOL = 1 << 2,
@@ -1116,16 +1105,16 @@ static Type *declspec(Token **rest, Token *tok, VarAttr *attr, StorageClass ctx)
   QualMask qual = 0;
 
   if (tok->attr_next)
-    tyspec_attr(tok, attr, TK_BATTR);
+    tyspec_attr(pctx, tok, attr, TK_BATTR);
 
   for (;;) {
     if (tok->attr_next)
-      tyspec_attr(tok, attr, TK_ATTR);
+      tyspec_attr(pctx, tok, attr, TK_ATTR);
 
     TokenKind tk_kind = tok->kind;
     if (!is_type_kw(tk_kind)) {
       VarScope *vsc;
-      if (!ty && (vsc = find_typedef(tok))) {
+      if (!ty && (vsc = find_typedef(pctx, tok))) {
         ty = vsc->type_def;
         attr->align = MAX(attr->align, vsc->type_def_align);
         tok = tok->next;
@@ -1152,9 +1141,9 @@ static Type *declspec(Token **rest, Token *tok, VarAttr *attr, StorageClass ctx)
     case TK_alignas: {
       tok = skip(tok, "(");
       int align;
-      if (is_typename(tok)) {
+      if (is_typename(pctx, tok)) {
         VarAttr attr2 = {0};
-        Type *ty2 = typename2(&tok, tok, &attr2);
+        Type *ty2 = typename2(pctx, &tok, tok, &attr2);
         align = attr2.align ? attr2.align : ty2->align;
       } else {
         align = align_expr(&tok, tok);
@@ -1174,7 +1163,7 @@ static Type *declspec(Token **rest, Token *tok, VarAttr *attr, StorageClass ctx)
       if (consume(&tok, tok, "(")) {
         if (ty)
           error_tok(tok, "invalid type");
-        ty = typename(&tok, tok);
+        ty = typename(pctx, &tok, tok);
         tok = skip(tok, ")");
         counter |= OTHER;
       }
@@ -1185,9 +1174,9 @@ static Type *declspec(Token **rest, Token *tok, VarAttr *attr, StorageClass ctx)
       switch (tk_kind) {
       case TK_struct:        ty = struct_union_decl(&tok, tok, TY_STRUCT); break;
       case TK_union:         ty = struct_union_decl(&tok, tok, TY_UNION); break;
-      case TK_enum:          ty = enum_specifier(&tok, tok); break;
-      case TK_typeof:        ty = typeof_specifier(&tok, tok, attr); break;
-      case TK_typeof_unqual: ty = unqual(typeof_specifier(&tok, tok, attr)); break;
+      case TK_enum:          ty = enum_specifier(pctx, &tok, tok); break;
+      case TK_typeof:        ty = typeof_specifier(pctx, &tok, tok, attr); break;
+      case TK_typeof_unqual: ty = unqual(typeof_specifier(pctx, &tok, tok, attr)); break;
       case TK_auto_type:     ty = new_type(TY_AUTO, -1, 0); break;
       }
       if (ty) {
@@ -1259,9 +1248,9 @@ static Type *declspec(Token **rest, Token *tok, VarAttr *attr, StorageClass ctx)
     error_tok(tok, "invalid storage class");
 
   if (!ty) {
-    if (opt_std == STD_C89) {
+    if (pctx->opts->opt_std == STD_C89) {
       ty = ty_int;
-    } else if (opt_std >= STD_C23 && (attr->strg & SC_AUTO)) {
+    } else if (pctx->opts->opt_std >= STD_C23 && (attr->strg & SC_AUTO)) {
       ty = new_type(TY_AUTO, -1, 0);
     } else {
       if (tok->kind == TK_IDENT)
@@ -1281,7 +1270,7 @@ static Type *declspec(Token **rest, Token *tok, VarAttr *attr, StorageClass ctx)
   return qual_type(qual, ty, tok);
 }
 
-static Type *func_params(Token **rest, Token *tok, Type *rtn_ty, Token **end) {
+static Type *func_params(ParseCtx *pctx,  Token **rest, Token *tok, Type *rtn_ty, Token **end) {
   Type *fn_ty = func_type(rtn_ty, tok);
 
   if (equal(tok, "...") && consume(rest, tok->next, ")")) {
@@ -1292,13 +1281,13 @@ static Type *func_params(Token **rest, Token *tok, Type *rtn_ty, Token **end) {
     return fn_ty;
 
   if (consume(rest, tok, ")")) {
-    if (opt_std < STD_C23)
+    if (pctx->opts->opt_std < STD_C23)
       fn_ty->is_oldstyle = true;
     return fn_ty;
   }
-  bool is_def = end && is_func_def(*end ? *end : skip_paren(tok));
+  bool is_def = end && is_func_def(pctx, *end ? *end : skip_paren(tok));
 
-  if (!is_typename(tok)) {
+  if (!is_typename(pctx, tok)) {
     fn_ty->is_oldstyle = true;
 
     Token *start = tok;
@@ -1307,20 +1296,20 @@ static Type *func_params(Token **rest, Token *tok, Type *rtn_ty, Token **end) {
         ident_tok(&tok, tok);
       return fn_ty;
     }
-    enter_fn_scope(fn_ty);
+    enter_fn_scope(pctx, fn_ty);
 
     Obj head = {0};
     Obj *cur = &head;
     while (comma_list(rest, &tok, ")", tok != start)) {
       Token *name = ident_tok(&tok, tok);
-      cur = cur->param_next = new_param(get_ident(name), NULL);
+      cur = cur->param_next = new_param(pctx, get_ident(name), NULL);
     }
     fn_ty->param_list = head.param_next;
-    leave_scope();
+    leave_scope(pctx);
     return fn_ty;
   }
 
-  enter_fn_scope(fn_ty);
+  enter_fn_scope(pctx, fn_ty);
 
   Obj head = {0};
   Obj *cur = &head;
@@ -1334,8 +1323,8 @@ static Type *func_params(Token **rest, Token *tok, Type *rtn_ty, Token **end) {
     }
     VarAttr attr = {0};
     Token *name = NULL;
-    Type *ty = declspec(&tok, tok, &attr, SC_REGISTER);
-    ty = declarator2(&tok, tok, ty, &name,
+    Type *ty = declspec(pctx, &tok, tok, &attr, SC_REGISTER);
+    ty = declarator2(pctx, &tok, tok, ty, &name,
                      &(DeclContext){.let_star = !is_def, .is_param = true});
 
     if (is_def)
@@ -1347,17 +1336,17 @@ static Type *func_params(Token **rest, Token *tok, Type *rtn_ty, Token **end) {
 
     if (param_ty->kind == TY_VOID)
       error_tok(tok, "parameter declared void");
-    cur = cur->param_next = new_param(NULL, param_ty);
+    cur = cur->param_next = new_param(pctx, NULL, param_ty);
     if (name)
-      push_var_name(name, cur);
+      push_var_name(pctx, name, cur);
   }
   fn_ty->pre_calc = expr;
   fn_ty->param_list = head.param_next;
-  leave_scope();
+  leave_scope(pctx);
   return fn_ty;
 }
 
-static Type *array_dimensions(Token **rest, Token *tok, Type *ty, DeclContext *ctx) {
+static Type *array_dimensions(ParseCtx *pctx, Token **rest, Token *tok, Type *ty, DeclContext *ctx) {
   Node *expr;
   if (consume(&tok, tok, "]")) {
     expr = NULL;
@@ -1367,7 +1356,7 @@ static Type *array_dimensions(Token **rest, Token *tok, Type *ty, DeclContext *c
     expr = new_unknown(ty_size_t, tok);
     tok = tok->next->next;
   } else {
-    expr = assign(&tok, tok);
+    expr = assign(pctx, &tok, tok);
     add_type(expr);
     if (!is_integer(expr->ty))
       error_tok(tok, "size of array not integer");
@@ -1375,7 +1364,7 @@ static Type *array_dimensions(Token **rest, Token *tok, Type *ty, DeclContext *c
   }
 
   if (equal(tok, "["))
-    ty = array_dimensions(&tok, tok->next, ty, ctx);
+    ty = array_dimensions(pctx, &tok, tok->next, ty, ctx);
 
   if (ty->size < 0 || ty->kind == TY_VOID || ty->kind == TY_FUNC)
     error_tok(tok, "invalid array element type");
@@ -1392,7 +1381,7 @@ static Type *array_dimensions(Token **rest, Token *tok, Type *ty, DeclContext *c
       return vla_of(ty, NULL, array_len);
     return array_of(ty, array_len);
   }
-  if (is_const_context())
+  if (is_const_context(pctx))
     error_tok(tok, "variably-modified type in constant context");
   return vla_of(ty, expr, 0);
 }
@@ -1412,9 +1401,9 @@ static QualMask pointer_qualifiers(Token **rest, Token *tok) {
   return qual;
 }
 
-static Type *type_suffix(Token **rest, Token *tok, Type *ty, DeclContext *ctx) {
+static Type *type_suffix(ParseCtx *pctx, Token **rest, Token *tok, Type *ty, DeclContext *ctx) {
   if (equal(tok, "("))
-    return func_params(rest, tok->next, ty, NULL);
+    return func_params(pctx, rest, tok->next, ty, NULL);
 
   if (consume(&tok, tok, "[")) {
     QualMask qual = 0;
@@ -1428,7 +1417,7 @@ static Type *type_suffix(Token **rest, Token *tok, Type *ty, DeclContext *ctx) {
           has_static = consume(&tok, tok, "static");
       }
     }
-    Type *ty2 = array_dimensions(rest, tok, ty, ctx);
+    Type *ty2 = array_dimensions(pctx, rest, tok, ty, ctx);
 
     if (ctx->is_param) {
       if (has_static && ty2->array_len < 0)
@@ -1470,20 +1459,20 @@ Token *skip_paren(Token *tok) {
   return tok->next;
 }
 
-static Type *declarator2(Token **rest, Token *tok, Type *ty, Token **name_tok,
+static Type *declarator2(ParseCtx *pctx, Token **rest, Token *tok, Type *ty, Token **name_tok,
                          DeclContext *ctx) {
   ty = pointers(&tok, tok, ty);
 
   if (consume(&tok, tok, "(")) {
-    if (is_typename(tok) || equal(tok, "...") || equal(tok, ")"))
-      return func_params(rest, tok, ty, NULL);
+    if (is_typename(pctx, tok) || equal(tok, "...") || equal(tok, ")"))
+      return func_params(pctx, rest, tok, ty, NULL);
 
-    ty = type_suffix(rest, skip_paren(tok), ty, ctx);
+    ty = type_suffix(pctx, rest, skip_paren(tok), ty, ctx);
     if (ctx->is_glob) {
       ctx->is_glob = false;
       ctx->end = *rest;
     }
-    return declarator2(&(Token *){0}, tok, ty, name_tok, ctx);
+    return declarator2(pctx, &(Token *){0}, tok, ty, name_tok, ctx);
   }
 
   if (name_tok && tok->kind == TK_IDENT) {
@@ -1491,22 +1480,22 @@ static Type *declarator2(Token **rest, Token *tok, Type *ty, Token **name_tok,
     tok = tok->next;
   }
   if (consume(&tok, tok, "("))
-    return func_params(rest, tok, ty, &ctx->end);
+    return func_params(pctx, rest, tok, ty, &ctx->end);
 
-  return type_suffix(rest, tok, ty, ctx);
+  return type_suffix(pctx, rest, tok, ty, ctx);
 }
 
-static Type *declarator(Token **rest, Token *tok, Type *ty, Token **name_tok) {
-  return declarator2(rest, tok, ty, name_tok, &(DeclContext){0});
+static Type *declarator(ParseCtx *pctx, Token **rest, Token *tok, Type *ty, Token **name_tok) {
+  return declarator2(pctx, rest, tok, ty, name_tok, &(DeclContext){0});
 }
 
-static Type *typename2(Token **rest, Token *tok, VarAttr *attr) {
-  Type *ty = declspec(&tok, tok, attr, SC_NONE);
+static Type *typename2(ParseCtx *pctx, Token **rest, Token *tok, VarAttr *attr) {
+  Type *ty = declspec(pctx, &tok, tok, attr, SC_NONE);
   return declarator(rest, tok, ty, NULL);
 }
 
-static Type *typename(Token **rest, Token *tok) {
-  return typename2(rest, tok, &(VarAttr){0});
+static Type *typename(ParseCtx *pctx, Token **rest, Token *tok) {
+  return typename2(pctx, rest, tok, &(VarAttr){0});
 }
 
 static void new_enum(Type **ty) {
@@ -1530,10 +1519,10 @@ static bool chk_enum_tag(Type *tag_ty, Type *fixed_ty, Token *tag) {
   return true;
 }
 
-static Type *enum_specifier(Token **rest, Token *tok) {
+static Type *enum_specifier(ParseCtx *pctx, Token **rest, Token *tok) {
   bool is_packed = false;
-  bool_attr(tok, TK_ATTR, "packed", &is_packed);
-  bool_attr(tok, TK_BATTR, "packed", &is_packed);
+  bool_attr(pctx, tok, TK_ATTR, "packed", &is_packed);
+  bool_attr(pctx, tok, TK_BATTR, "packed", &is_packed);
 
   Token *tag = NULL;
   if (tok->kind == TK_IDENT) {
@@ -1543,7 +1532,7 @@ static Type *enum_specifier(Token **rest, Token *tok) {
 
   Type *ty = NULL;
   if (consume(&tok, tok, ":")) {
-    ty = typename(&tok, tok);
+    ty = typename(pctx, &tok, tok);
 
     if (!is_integer(ty))
       error_tok(tok, "underlying type not integer");
@@ -1553,12 +1542,12 @@ static Type *enum_specifier(Token **rest, Token *tok) {
   if (tag && !equal(tok, "{")) {
     *rest = tok;
 
-    Type *tag_ty = ty ? find_tag_in_scope(tag) : find_tag(tag);
+    Type *tag_ty = ty ? find_tag_in_scope(pctx, tag) : find_tag(pctx, tag);
     if (chk_enum_tag(tag_ty, ty, tag))
       return tag_ty;
 
     new_enum(&ty);
-    push_tag_scope(tag, ty);
+    push_tag_scope(pctx, tag, ty);
     return ty;
   }
   tok = skip(tok, "{");
@@ -1569,10 +1558,10 @@ static Type *enum_specifier(Token **rest, Token *tok) {
 
   Type *tag_ty = NULL;
   if (tag)
-    tag_ty = find_tag_in_scope(tag);
+    tag_ty = find_tag_in_scope(pctx, tag);
 
   if (chk_enum_tag(tag_ty, ty, tag)) {
-    if (opt_std < STD_C23) {
+    if (pctx->opts->opt_std < STD_C23) {
       if (!ty && tag_ty->kind != TY_ENUM)
         error_tok(tag, "enum redeclaration");
     } else {
@@ -1584,7 +1573,7 @@ static Type *enum_specifier(Token **rest, Token *tok) {
   } else {
     new_enum(&ty);
     if (tag)
-      push_tag_scope(tag, ty);
+      push_tag_scope(pctx, tag, ty);
   }
 
   EnumType ety = ETY_I8;
@@ -1605,7 +1594,7 @@ static Type *enum_specifier(Token **rest, Token *tok) {
         error_tok(tok, "enum value overflowed");
     } else {
       Type *val_ty = NULL;
-      val = const_expr2(&tok, tok, &val_ty);
+      val = const_expr2(pctx, &tok, tok, &val_ty);
 
       if ((is_neg = (!val_ty->is_unsigned && (int64_t)val < 0))) {
         been_neg = true;
@@ -1642,10 +1631,10 @@ static Type *enum_specifier(Token **rest, Token *tok) {
     is_ovf = !is_neg && val == 0;
     is_neg = (int64_t)val < 0;
 
-    HashEntry *ent = hashmap_get_or_insert(&decl_scope()->vars, name->loc, name->len);
+    HashEntry *ent = hashmap_get_or_insert(&decl_scope(pctx)->vars, name->loc, name->len);
     VarScope *vsc = ent->val;
     if (vsc) {
-      if (opt_std >= STD_C23 && tag_enum_cnt && vsc->enum_ty) {
+      if (pctx->opts->opt_std >= STD_C23 && tag_enum_cnt && vsc->enum_ty) {
         if (vsc->enum_val != v)
           error_tok(tok, "enum redeclared with conflicting value");
         decl_enum_cnt++;
@@ -1653,7 +1642,7 @@ static Type *enum_specifier(Token **rest, Token *tok) {
       }
       error_tok(name, "enum redeclaration");
     } else {
-      if (opt_std >= STD_C23) {
+      if (pctx->opts->opt_std >= STD_C23) {
         cur = cur->next = malloc(sizeof(EnumVal));
         cur->val = v;
         cur->name = name;
@@ -1670,7 +1659,7 @@ static Type *enum_specifier(Token **rest, Token *tok) {
   bool_attr(tok, TK_ATTR, "packed", &is_packed);
   *rest = tok;
 
-  if (opt_std >= STD_C23) {
+  if (pctx->opts->opt_std >= STD_C23) {
     if (tag_enum_cnt) {
       if (tag_enum_cnt != decl_enum_cnt)
         error_tok(tag, "enum redeclared with conflicting value");
@@ -1688,7 +1677,7 @@ static Type *enum_specifier(Token **rest, Token *tok) {
     return ty;
   }
 
-  if (!(is_packed || opt_short_enums))
+  if (!(is_packed || pctx->opts->opt_short_enums))
     ety = MAX(ety, ety_of_int);
 
   bool is_int = ety <= ety_of_int;
@@ -1709,15 +1698,15 @@ static Type *enum_specifier(Token **rest, Token *tok) {
   return ty;
 }
 
-static Type *typeof_specifier(Token **rest, Token *tok, VarAttr *attr) {
+static Type *typeof_specifier(ParseCtx *pctx, Token **rest, Token *tok, VarAttr *attr) {
   tok = skip(tok, "(");
 
   Type *ty;
-  if (is_typename(tok)) {
-    ty = declspec(&tok, tok, attr, SC_ALL);
-    ty = declarator(&tok, tok, ty, NULL);
+  if (is_typename(pctx, tok)) {
+    ty = declspec(pctx, &tok, tok, attr, SC_ALL);
+    ty = declarator(pctx, &tok, tok, ty, NULL);
   } else {
-    Node *node = expression(&tok, tok);
+    Node *node = expression(pctx, &tok, tok);
     add_type(node);
     ty = node->ty;
 
@@ -1752,10 +1741,10 @@ static Node *ptr_base_size(Type *ty, Token *tok) {
   return base_size(ty->base, tok);
 }
 
-static Node *calc_vla(Type *ty, Token *tok) {
+static Node *calc_vla(ParseCtx *ctx, Type *ty, Token *tok) {
   Node *n = NULL;
   if (ty->kind == TY_VLA && ty->vla_len_expr && !ty->vla_len_val) {
-    ty->vla_len_val = new_lvar2(ty_size_t, base_scope());
+    ty->vla_len_val = new_lvar2(ty_size_t, base_scope(ctx));
     n = new_binary(ND_ASSIGN, new_var_node(ty->vla_len_val, tok), ty->vla_len_expr, tok);
   }
   if (ty->base)
@@ -1771,13 +1760,13 @@ static Node *calc_vla2(Type *ty, Token *tok, VarAttr *attr) {
   return n;
 }
 
-static Node *declaration2(Token **rest, Token *tok, Type *basety, VarAttr *attr,
+static Node *declaration2(ParseCtx *pctx, Token **rest, Token *tok, Type *basety, VarAttr *attr,
                           Obj **cond_var) {
   Token *name = NULL;
-  Type *ty = declarator(&tok, tok, basety, &name);
+  Type *ty = declarator(pctx, &tok, tok, basety, &name);
 
   if (ty->kind == TY_FUNC) {
-    func_prototype(rest, tok, name, ty, attr);
+    func_prototype(pctx, rest, tok, name, ty, attr);
     return NULL;
   }
 
@@ -1792,39 +1781,39 @@ static Node *declaration2(Token **rest, Token *tok, Type *basety, VarAttr *attr,
     if (ty->kind == TY_VLA)
       error_tok(tok, "variable length arrays cannot be 'static'");
 
-    Obj *var = new_static_lvar(ty);
-    push_var_name(name, var);
+    Obj *var = new_static_lvar(pctx, ty);
+    push_var_name(pctx, name, var);
 
     var->is_tls = attr->strg & SC_THREAD;
     assembler_name(&tok, tok, var);
-    aligned_attr(name, tok, attr, &var->alt_align);
-    symbol_attr(name, tok, attr, var);
+    aligned_attr(pctx, name, tok, attr, &var->alt_align);
+    symbol_attr(pctx, name, tok, attr, var);
 
     if (consume(&tok, tok, "=")) {
       if (attr->strg & SC_CONSTEXPR)
-        constexpr_initializer(&tok, tok, var, var);
+        constexpr_initializer(pctx, &tok, tok, var, var);
       else
-        gvar_initializer(&tok, tok, var);
+        gvar_initializer(pctx, &tok, tok, var);
       *cond_var = var;
     }
     *rest = tok;
     return expr;
   }
 
-  Obj *var = new_lvar2(ty, decl_scope());
-  push_var_name(name, var);
+  Obj *var = new_lvar2(ty, decl_scope(pctx));
+  push_var_name(pctx, name, var);
 
   if (ty->kind == TY_VLA) {
-    fnctx->use_vla = true;
+    pctx->fnctx->use_vla = true;
 
     Node *node = vla_size(ty, name);
     node = new_unary(ND_ALLOCA, node, name);
     node->m.var = var;
 
-    new_defr(DF_VLA_DEALLOC)->vla = var;
+    new_defr(pctx, DF_VLA_DEALLOC)->vla = var;
 
-    aligned_attr(name, tok, attr, &var->alt_align);
-    cleanup_attr(name, tok, attr, var);
+    aligned_attr(pctx, name, tok, attr, &var->alt_align);
+    cleanup_attr(pctx, name, tok, attr, var);
 
     if (equal(tok, "=")) {
       tok = skip(skip(tok->next, "{"), "}");
@@ -1837,12 +1826,12 @@ static Node *declaration2(Token **rest, Token *tok, Type *basety, VarAttr *attr,
   }
 
   assembler_name(&tok, tok, var);
-  aligned_attr(name, tok, attr, &var->alt_align);
-  cleanup_attr(name, tok, attr, var);
+  aligned_attr(pctx, name, tok, attr, &var->alt_align);
+  cleanup_attr(pctx, name, tok, attr, var);
 
   if (attr->strg & SC_CONSTEXPR) {
-    Obj *init_var = new_static_lvar(ty);
-    constexpr_initializer(&tok, skip(tok, "="), init_var, var);
+    Obj *init_var = new_static_lvar(pctx, ty);
+    constexpr_initializer(pctx, &tok, skip(tok, "="), init_var, var);
     chain_expr(&expr, new_binary(ND_ASSIGN, new_var_node(var, tok),
                                  new_var_node(init_var, tok), tok));
     *cond_var = var;
@@ -1850,7 +1839,7 @@ static Node *declaration2(Token **rest, Token *tok, Type *basety, VarAttr *attr,
     return expr;
   }
   if (equal(tok, "=")) {
-    chain_expr(&expr, lvar_initializer(&tok, tok->next, var));
+    chain_expr(&expr, lvar_initializer(pctx, &tok, tok->next, var));
     *cond_var = var;
   }
   if (var->ty->size < 0)
@@ -1861,37 +1850,37 @@ static Node *declaration2(Token **rest, Token *tok, Type *basety, VarAttr *attr,
   return expr;
 }
 
-static Node *cond_declaration(Token **rest, Token *tok, char *stopper, int clause) {
+static Node *cond_declaration(ParseCtx *pctx, Token **rest, Token *tok, char *stopper, int clause) {
   Node *n = NULL;
 
   for (;; clause++) {
-    if (!is_typename(tok)) {
-      chain_expr(&n, expression(&tok, tok));
+    if (!is_typename(pctx, tok)) {
+      chain_expr(&n, expression(pctx, &tok, tok));
       *rest = skip(tok, stopper);
       return n;
     }
 
     VarAttr attr = {0};
     StorageClass msk = (clause == 0) ? SC_ALL : (SC_AUTO | SC_CONSTEXPR | SC_REGISTER);
-    Type *basety = declspec(&tok, tok, &attr, msk);
+    Type *basety = declspec(pctx, &tok, tok, &attr, msk);
 
     if (attr.strg & SC_EXTERN) {
-      global_declaration(&tok, tok, basety, &attr);
+      global_declaration(pctx, &tok, tok, basety, &attr);
       continue;
     }
 
     chain_expr(&n, calc_vla2(basety, tok, &attr));
 
     if (attr.strg & SC_TYPEDEF) {
-      chain_expr(&n, parse_typedef(&tok, tok, basety, &attr));
+      chain_expr(&n, parse_typedef(pctx, &tok, tok, basety, &attr));
       continue;
     }
 
     Obj *var = NULL;
-    chain_expr(&n, declaration2(&tok, tok, basety, &attr, &var));
+    chain_expr(&n, declaration2(pctx, &tok, tok, basety, &attr, &var));
 
     while (consume(&tok, tok, ",")) {
-      chain_expr(&n, declaration2(&tok, tok, basety, &attr, &var));
+      chain_expr(&n, declaration2(pctx, &tok, tok, basety, &attr, &var));
       var = NULL;
     }
 
@@ -1907,35 +1896,35 @@ static Node *cond_declaration(Token **rest, Token *tok, char *stopper, int claus
   }
 }
 
-static Node *declaration(Token **rest, Token *tok) {
+static Node *declaration(ParseCtx *pctx, Token **rest, Token *tok) {
   VarAttr attr = {0};
-  Type *basety = declspec(&tok, tok, &attr, SC_ALL);
+  Type *basety = declspec(pctx, &tok, tok, &attr, SC_ALL);
 
   if (attr.strg & SC_EXTERN) {
-    global_declaration(rest, tok, basety, &attr);
+    global_declaration(pctx, rest, tok, basety, &attr);
     return NULL;
   }
 
   Node *expr = calc_vla2(basety, tok, &attr);
 
   if (attr.strg & SC_TYPEDEF) {
-    chain_expr(&expr, parse_typedef(rest, tok, basety, &attr));
+    chain_expr(&expr, parse_typedef(pctx, rest, tok, basety, &attr));
     return expr;
   }
 
   for (bool first = true; comma_list(rest, &tok, ";", !first); first = false)
-    chain_expr(&expr, declaration2(&tok, tok, basety, &attr, &(Obj *){0}));
+    chain_expr(&expr, declaration2(pctx, &tok, tok, basety, &attr, &(Obj *){0}));
 
   return expr;
 }
 
-static Token *skip_excess_element(Token *tok) {
+static Token *skip_excess_element(ParseCtx *pctx, Token *tok) {
   if (equal(tok, "{")) {
-    tok = skip_excess_element(tok->next);
+    tok = skip_excess_element(pctx, tok->next);
     return skip(tok, "}");
   }
 
-  assign(&tok, tok);
+  assign(pctx, &tok, tok);
   return tok;
 }
 

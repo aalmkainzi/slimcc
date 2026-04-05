@@ -704,8 +704,6 @@ static Token *paste(Token *lhs, Token *rhs) {
   align_token(tok, lhs);
 
   if (tok->next->kind != TK_EOF) {
-    if (opt_cc1_asm_pp)
-      return lhs->next = tok->next;
     error_tok(lhs, "pasting forms '%s', an invalid token", buf);
   }
   if (tok->origin == lhs)
