@@ -410,6 +410,7 @@ extern Token *tok_freelist;
 // parse.c
 //
 
+// TODO make this able to contain type definition (struct / union / typedef)
 // Variable or function
 typedef struct Obj Obj;
 struct Obj {
