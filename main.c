@@ -442,21 +442,6 @@ static void print_tokens(Token *tok, FILE *out) {
       fprintf(out, "\n");
       line++;
     }
-    if (!opt_P) {
-      if (file_no != tok->display_file_no) {
-        file_no = tok->display_file_no;
-        print_linemarker(out, tok);
-      } else {
-        int diff = tok->display_line_no - line;
-        if (diff > 0 && diff <= 8) {
-          while (line++ < tok->display_line_no)
-            fprintf(out, "\n");
-        } else if (diff) {
-          print_linemarker(out, tok);
-        }
-      }
-      line = tok->display_line_no;
-    }
     if (tok->has_space)
       fprintf(out, " ");
 
@@ -465,8 +450,8 @@ static void print_tokens(Token *tok, FILE *out) {
   fprintf(out, "\n");
 }
 
-bool in_sysincl_path(int idx) {
-  return idx >= incl_cnt;
+bool in_sysincl_path(SlimccOptions *opts, int idx) {
+  return idx >= opts->incl_cnt;
 }
 
 bool ignore_missing_dep(char *path, char *filename, Token *tok) {
