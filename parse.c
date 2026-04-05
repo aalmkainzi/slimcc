@@ -554,7 +554,7 @@ static void set_init(Initializer *init, int kind) {
   init->kind = kind;
 }
 
-static void prepare_array_init(Initializer *init, Type *ty) {
+static void prepare_array_init(ParseCtx *pctx, Initializer *init, Type *ty) {
   if (init->kind == INIT_LIST)
     return;
 
@@ -614,7 +614,7 @@ static void prepare_array_init(Initializer *init, Type *ty) {
     init->list.data[i].ty = ty->base;
 }
 
-static void prepare_struct_init(Initializer *init, Type *ty) {
+static void prepare_struct_init(ParseCtx *pctx, Initializer *init, Type *ty) {
   if (init->kind == INIT_LIST)
     return;
 
@@ -1491,7 +1491,7 @@ static Type *declarator(ParseCtx *pctx, Token **rest, Token *tok, Type *ty, Toke
 
 static Type *typename2(ParseCtx *pctx, Token **rest, Token *tok, VarAttr *attr) {
   Type *ty = declspec(pctx, &tok, tok, attr, SC_NONE);
-  return declarator(rest, tok, ty, NULL);
+  return declarator(pctx, rest, tok, ty, NULL);
 }
 
 static Type *typename(ParseCtx *pctx, Token **rest, Token *tok) {
@@ -1928,7 +1928,7 @@ static Token *skip_excess_element(ParseCtx *pctx, Token *tok) {
   return tok;
 }
 
-static void string_initializer(Token *tok, Initializer *init) {
+static void string_initializer(ParseCtx *pctx, Token *tok, Initializer *init) {
   if (tok->ty->base->size != init->ty->base->size)
     error_tok(tok, "array initialization with string of incompatible size");
 
@@ -1939,7 +1939,7 @@ static void string_initializer(Token *tok, Initializer *init) {
   init->tok = tok;
 }
 
-static void array_designator(Token **rest, Token *tok, Type *ty, int *begin, int *end) {
+static void array_designator(ParseCtx *pctx, Token **rest, Token *tok, Type *ty, int *begin, int *end) {
   *begin = const_expr(&tok, tok->next);
 
   if (*begin >= ty->array_len)
@@ -1970,15 +1970,15 @@ static Member *struct_designator(Token **rest, Token *tok, Type *ty) {
   return mem;
 }
 
-static void designation(Token **rest, Token *tok, Initializer *init, bool post_bracket,
+static void designation(ParseCtx *pctx, Token **rest, Token *tok, Initializer *init, bool post_bracket,
                         DesgContext *ctx) {
   if (equal(tok, "[")) {
     if (init->ty->kind != TY_ARRAY)
       error_tok(tok, "array index not in array initializer");
 
     int begin, end;
-    array_designator(&tok, tok, init->ty, &begin, &end);
-    prepare_array_init(init, init->ty);
+    array_designator(pctx, &tok, tok, init->ty, &begin, &end);
+    prepare_array_init(pctx, init, init->ty);
 
     Token *start = tok;
     if (begin == end || is_const_context()) {
