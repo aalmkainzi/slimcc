@@ -255,61 +255,6 @@ static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork, Slimc
       continue;
     }
 
-    if (!strcmp(argv[i], "-dumpmachine")) {
-      if (!dumpmachine_str)
-        error("'-dumpmachine' not configured");
-      puts(dumpmachine_str);
-      exit(0);
-    }
-
-    if (!strcmp(argv[i], "-print-search-dirs") ||
-        !strcmp(argv[i], "--print-search-dirs")) {
-      StringArray dirs = {0};
-      platform_search_dirs(&dirs);
-      printf("libraries: =");
-      for (int i = 0; i < dirs.len; i++)
-        printf("%s%s", dirs.data[i], (i + 1 != dirs.len) ? ":" : "\n");
-      exit(0);
-    }
-
-    if (!strcmp(argv[i], "-hashmap-test")) {
-      hashmap_test();
-      exit(0);
-    }
-
-    if (take_arg_s(argv, &i, &arg, "-o")) {
-      opt_o = arg;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "-S")) {
-      opt_S = true;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "-c")) {
-      opt_c = true;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "-E")) {
-      opt_E = true;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "-P")) {
-      opt_P = true;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "-dM")) {
-      opt_dM = true;
-      continue;
-    }
-
-    if (take_arg_s(argv, &i, &opt_B, "-B"))
-      continue;
-
     if (take_arg_s(argv, &i, &arg, "-I")) {
       add_include_path(&include_paths, arg);
       continue;
@@ -356,16 +301,6 @@ static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork, Slimc
       continue;
     }
 
-    if (startswith(argv[i], &arg, "-g")) {
-      opt_g = strcmp(arg, "0");
-      continue;
-    }
-
-    if (startswith(argv[i], &arg, "-O")) {
-      opt_optimize = strcmp(arg, "0");
-      continue;
-    }
-
     if (!strcmp(argv[i], "-ansi")) {
       set_std(true, "89");
       continue;
@@ -386,53 +321,16 @@ static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork, Slimc
     if (startswith(argv[i], &arg, "-f")) {
       bool b = !startswith(arg, &arg, "no-");
 
-      if (set_bool(arg, b, "common", &opt_fcommon) ||
-          set_bool(arg, b, "plt", &opt_use_plt) ||
-          set_bool(arg, b, "function-sections", &opt_func_sections) ||
-          set_bool(arg, b, "data-sections", &opt_data_sections) ||
-          set_bool(arg, b, "emulated-tls", &opt_femulated_tls) ||
-          set_bool(arg, b, "short-enums", &opt_short_enums) ||
-          set_bool(arg, b, "gnu89-inline", &opt_gnu89_inline))
+      if (set_bool(arg, b, "short-enums", &opt_short_enums))
         continue;
 
       if (set_bool(arg, b, "ms-anon-struct", &opt_ms_anon_struct))
         continue;
 
-      if (!strcmp(arg, "asm") || !strcmp(arg, "gnu-keywords")) {
+      if (!strcmp(arg, "gnu-keywords")) {
         opt_gnu_keywords = b;
         has_gnu_keywords_option = true;
         continue;
-      }
-
-      if (b) {
-        if (!strcmp(arg, "pic")) {
-          set_fpic("1");
-          continue;
-        }
-        if (!strcmp(arg, "PIC")) {
-          set_fpic("2");
-          continue;
-        }
-        if (!strcmp(arg, "pie")) {
-          set_fpie("1");
-          continue;
-        }
-        if (!strcmp(arg, "PIE")) {
-          set_fpie("2");
-          continue;
-        }
-      } else {
-        if (!strcmp(arg, "pic") ||
-            !strcmp(arg, "PIC") ||
-            !strcmp(arg, "pie") ||
-            !strcmp(arg, "PIE")) {
-          opt_fpic = opt_fpie = false;
-          undef_macro("__pic__");
-          undef_macro("__PIC__");
-          undef_macro("__pie__");
-          undef_macro("__PIE__");
-          continue;
-        }
       }
 
       // -f only options
@@ -444,55 +342,12 @@ static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork, Slimc
         if (set_bool(arg, false, "signed-char", &ty_pchar->is_unsigned) ||
             set_bool(arg, true, "unsigned-char", &ty_pchar->is_unsigned))
           continue;
-
-        if (startswith(arg, &arg, "stack-reuse=")) {
-          opt_reuse_stack = !strcmp(arg, "all");
-          continue;
-        }
-
-        if (set_true(arg, "disable-visibility", &opt_disable_visibility))
-          continue;
-        if (set_true(arg, "fake-always-inline", &opt_fake_always_inline))
-          continue;
-
-        if (startswith(arg, &opt_visibility, "visibility=") ||
-            startswith(arg, &opt_use_as, "use-as="))
-          continue;
-
-        if (startswith(arg, &arg, "use-ld=")) {
-          if (!strcmp(arg, "lld")) {
-            opt_use_ld = "ld.lld";
-            continue;
-          }
-          opt_use_ld = arg;
-          continue;
-        }
       }
     }
 
     if (argv[i][0] == '-') {
       arg = (argv[i][1] == '-') ? &argv[i][2] : &argv[i][1];
 
-      if (set_true(arg, "r", &opt_r) ||
-          set_true(arg, "rdynamic", &opt_rdynamic) ||
-          set_true(arg, "static", &opt_static) ||
-          set_true(arg, "static-pie", &opt_static_pie) ||
-          set_true(arg, "static-libgcc", &opt_static_libgcc) ||
-          set_true(arg, "shared", &opt_shared) ||
-          set_true(arg, "pie", &opt_pie) ||
-          set_true(arg, "nopie", &opt_nopie))
-        continue;
-
-      if (!strcmp(arg, "no-pie")) {
-        opt_pie = false;
-        opt_nopie = true;
-        continue;
-      }
-      if (!strcmp(arg, "pthread")) {
-        opt_pthread = true;
-        define_macro("_REENTRANT", "1");
-        continue;
-      }
     }
 
     if (!strcmp(argv[i], "-nostdinc")) {
