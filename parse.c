@@ -209,22 +209,22 @@ static Node *stmt(ParseCtx *pctx, Token **rest, Token *tok, Token *label_list);
 static Node *expr_stmt(ParseCtx *pctx, Token **rest, Token *tok);
 static Node *expression(ParseCtx *pctx, Token **rest, Token *tok);
 static int64_t align_expr(Token **rest, Token *tok);
-static int64_t eval(Node *node);
-static int64_t eval2(Node *node, EvalContext *ctx);
-static Obj *eval_var(Node *node, int *ofs, bool let_volatile);
+static int64_t eval(ParseCtx *pctx, Node *node);
+static int64_t eval2(ParseCtx *pctx, Node *node, EvalContext *ctx);
+static Obj *eval_var(ParseCtx *pctx, Node *node, int *ofs, bool let_volatile);
 static Node *assign(ParseCtx *pctx, Token **rest, Token *tok);
-static long_double_t eval_double(Node *node);
-static uint64_t *eval_bitint(Node *node);
-static uint64_t *eval_bitint_clean(Node *node);
+static long_double_t eval_double(ParseCtx *pctx, Node *node);
+static uint64_t *eval_bitint(ParseCtx *pctx, Node *node);
+static uint64_t *eval_bitint_clean(ParseCtx *pctx, Node *node);
 static Node *conditional(ParseCtx *pctx, Token **rest, Token *tok);
-static Node *new_add(Node *lhs, Node *rhs, Token *tok);
-static Node *new_sub(Node *lhs, Node *rhs, Token *tok);
+static Node *new_add(ParseCtx *pctx, Node *lhs, Node *rhs, Token *tok);
+static Node *new_sub(ParseCtx *pctx, Node *lhs, Node *rhs, Token *tok);
 static Node *binary(ParseCtx *pctx, Token **rest, Token *tok, Preced stop);
-static Member *get_struct_member(Type *ty, Token *tok);
-static Type *struct_union_decl(Token **rest, Token *tok, TypeKind kind);
-static Type *struct_decl(Type *ty, int alt_align, int pack_align);
-static Type *union_decl(Type *ty, int alt_align, int pack_align);
-static Node *postfix(Node *node, Token **rest, Token *tok);
+static Member *get_struct_member(ParseCtx *pctx, Type *ty, Token *tok);
+static Type *struct_union_decl(ParseCtx *pctx, Token **rest, Token *tok, TypeKind kind);
+static Type *struct_decl(ParseCtx *pctx, Type *ty, int alt_align, int pack_align);
+static Type *union_decl(ParseCtx *pctx, Type *ty, int alt_align, int pack_align);
+static Node *postfix(ParseCtx *pctx, Node *node, Token **rest, Token *tok);
 static Node *funcall(ParseCtx *pctx, Token **rest, Token *tok, Node *node);
 static Node *unary(ParseCtx *pctx, Token **rest, Token *tok);
 static Node *primary(ParseCtx *pctx, Token **rest, Token *tok);
@@ -1172,8 +1172,8 @@ static Type *declspec(ParseCtx *pctx, Token **rest, Token *tok, VarAttr *attr, S
 
     if (!ty) {
       switch (tk_kind) {
-      case TK_struct:        ty = struct_union_decl(&tok, tok, TY_STRUCT); break;
-      case TK_union:         ty = struct_union_decl(&tok, tok, TY_UNION); break;
+      case TK_struct:        ty = struct_union_decl(pctx, &tok, tok, TY_STRUCT); break;
+      case TK_union:         ty = struct_union_decl(pctx, &tok, tok, TY_UNION); break;
       case TK_enum:          ty = enum_specifier(pctx, &tok, tok); break;
       case TK_typeof:        ty = typeof_specifier(pctx, &tok, tok, attr); break;
       case TK_typeof_unqual: ty = unqual(typeof_specifier(pctx, &tok, tok, attr)); break;
@@ -1958,11 +1958,11 @@ static void array_designator(ParseCtx *pctx, Token **rest, Token *tok, Type *ty,
   *rest = skip(tok, "]");
 }
 
-static Member *struct_designator(Token **rest, Token *tok, Type *ty) {
+static Member *struct_designator(ParseCtx *pctx, Token **rest, Token *tok, Type *ty) {
   if (tok->kind != TK_IDENT)
     error_tok(tok, "expected a field designator");
 
-  Member *mem = get_struct_member(ty, tok);
+  Member *mem = get_struct_member(pctx, ty, tok);
   if (!mem)
     error_tok(tok, "struct has no such member");
   if (mem->name)
@@ -2017,7 +2017,7 @@ static void designation(ParseCtx *pctx, Token **rest, Token *tok, Initializer *i
     if (!(init->ty->kind == TY_STRUCT || init->ty->kind == TY_UNION))
       error_tok(tok, "field designator not in struct or union initializer");
 
-    Member *mem = struct_designator(&tok, tok->next, init->ty);
+    Member *mem = struct_designator(pctx, &tok, tok->next, init->ty);
     prepare_struct_init(pctx, init, init->ty);
 
     if (init->ty->kind == TY_UNION) {
@@ -2254,7 +2254,7 @@ static void initializer(ParseCtx *pctx, Token **rest, Token *tok, Initializer *i
 
 static Node *init_desg_expr(ParseCtx *pctx, InitDesg *desg, Token *tok) {
   if (desg->var)
-    return new_var_node(desg->var, tok);
+    return new_var_node(pctx->slimcc_ctx, desg->var, tok);
 
   if (desg->member) {
     Node *node = new_unary(pctx->slimcc_ctx, ND_MEMBER, init_desg_expr(pctx, desg->parent, tok), tok);
@@ -2264,7 +2264,7 @@ static Node *init_desg_expr(ParseCtx *pctx, InitDesg *desg, Token *tok) {
 
   Node *lhs = init_desg_expr(pctx, desg->parent, tok);
   Node *rhs = new_num(pctx->slimcc_ctx, desg->idx, tok);
-  return new_unary(pctx->slimcc_ctx, ND_DEREF, new_add(lhs, rhs, tok), tok);
+  return new_unary(pctx->slimcc_ctx, ND_DEREF, new_add(pctx, lhs, rhs, tok), tok);
 }
 
 static Node *init_num_tok(ParseCtx *pctx, Initializer *init, Node *node) {
@@ -2436,7 +2436,7 @@ static void write_gvar_data(ParseCtx *pctx, Relocation **cur, Initializer *init,
       int sofs;
       Obj *var = NULL;
       if (is_compatible(init->ty, init->expr->ty))
-        var = eval_var(init->expr, &sofs, false);
+        var = eval_var(pctx, init->expr, &sofs, false);
 
       if (var &&
           var->init_data &&
@@ -2469,7 +2469,7 @@ static void write_gvar_data(ParseCtx *pctx, Relocation **cur, Initializer *init,
 
     if (is_integer(init->ty) || init->ty->kind == TY_PTR || init->ty->kind == TY_NULLPTR) {
       EvalContext ctx = {.kind = (init->ty->size != ty_nullptr->size) ? EV_CONST : ev_kind};
-      int64_t val = eval2(node, &ctx);
+      int64_t val = eval2(pctx, node, &ctx);
       if (ctx.label || ctx.var) {
         Relocation *rel = ast_arena_calloc(sizeof(Relocation));
         rel->offset = offset;
@@ -2491,7 +2491,7 @@ static void write_gvar_data(ParseCtx *pctx, Relocation **cur, Initializer *init,
     }
 
     if (init->ty->kind == TY_BITINT) {
-      uint64_t *val = eval_bitint_clean(node);
+      uint64_t *val = eval_bitint_clean(pctx, node);
       memcpy(buf + offset, val, init->ty->size);
       free(val);
       return;
@@ -2538,13 +2538,13 @@ static void write_gvar_data(ParseCtx *pctx, Relocation **cur, Initializer *init,
           char *loc = buf + offset + mem->offset;
 
           if (mem->ty->kind == TY_BITINT) {
-            uint64_t *val = eval_bitint(node);
+            uint64_t *val = eval_bitint(pctx, node);
             eval_bitint_bitfield_save(mem->ty->bit_cnt, val, loc, mem->bit_width,
                                       mem->bit_offset);
             free(val);
             continue;
           }
-          uint64_t val = eval(node);
+          uint64_t val = eval(pctx, node);
           if (mem->is_aligned_bitfield) {
             int sz = next_pow_of_two(mem->bit_offset + mem->bit_width) / 8;
             uint64_t oldval = read_buf(loc, sz);
@@ -3180,31 +3180,31 @@ static Node *expr_stmt(ParseCtx *pctx, Token **rest, Token *tok) {
   if (consume(rest, tok, ";"))
     return new_node(pctx->slimcc_ctx, ND_NULL_STMT, tok);
 
-  Node *n = expression(&tok, tok);
+  Node *n = expression(pctx, &tok, tok);
   add_type(n);
   if (n->ty->size < 0 && n->ty->kind != TY_ARRAY)
     error_tok(n->tok, "expression has incomplete type");
 
-  Node *node = new_node(ND_EXPR_STMT, tok);
+  Node *node = new_node(pctx->slimcc_ctx, ND_EXPR_STMT, tok);
   node->m.lhs = n;
   *rest = skip(tok, ";");
   return node;
 }
 
-static Node *expression(Token **rest, Token *tok) {
-  Node *node = assign(&tok, tok);
+static Node *expression(ParseCtx *pctx, Token **rest, Token *tok) {
+  Node *node = assign(pctx, &tok, tok);
 
   if (equal(tok, ",")) {
-    node = new_binary(ND_COMMA, node, expression(&tok, tok->next), tok);
+    node = new_binary(pctx->slimcc_ctx, ND_COMMA, node, expression(pctx, &tok, tok->next), tok);
     node->is_nonlval = true;
   }
   *rest = tok;
   return node;
 }
 
-static int64_t eval_error2(Node *node, char *fmt, ...) {
-  if (eval_recover) {
-    *eval_recover = true;
+static int64_t eval_error2(ParseCtx *pctx, Node *node, char *fmt, ...) {
+  if (pctx->eval_recover) {
+    *pctx->eval_recover = true;
     return 0;
   }
   va_list ap;
@@ -3214,35 +3214,35 @@ static int64_t eval_error2(Node *node, char *fmt, ...) {
   exit(1);
 }
 
-static int64_t eval_error(Node *node) {
-  return eval_error2(node, "not a compile-time constant");
+static int64_t eval_error(ParseCtx *pctx, Node *node) {
+  return eval_error2(pctx, node, "not a compile-time constant");
 }
 
-static bool eval_ctx(Node *node, EvalContext *ctx, int64_t *val) {
+static bool eval_ctx(ParseCtx *pctx, Node *node, EvalContext *ctx, int64_t *val) {
   bool failed = false;
-  bool *prev = eval_recover;
-  eval_recover = &failed;
+  bool *prev = pctx->eval_recover;
+  pctx->eval_recover = &failed;
 
-  int64_t v = eval2(node, ctx);
+  int64_t v = eval2(pctx, node, ctx);
   if (val)
     *val = v;
-  eval_recover = prev;
+  pctx->eval_recover = prev;
   return !failed;
 }
 
-static bool eval_non_var_ofs(Node *node, int64_t *ofs) {
+static bool eval_non_var_ofs(ParseCtx *pctx, Node *node, int64_t *ofs) {
   if (node->kind == ND_MEMBER || node->kind == ND_DEREF) {
     EvalContext ctx = {.kind = EV_AGGREGATE,
                        .let_array = true,
                        .let_atomic = true,
                        .let_volatile = true};
-    if (eval_ctx(node, &ctx, ofs) && !ctx.var)
+    if (eval_ctx(pctx, node, &ctx, ofs) && !ctx.var)
       return true;
   }
   return false;
 }
 
-static Obj *eval_var_ofs(Node *node, int *ofs, bool let_array, bool let_volatile,
+static Obj *eval_var_ofs(ParseCtx *pctx, Node *node, int *ofs, bool let_array, bool let_volatile,
                          bool let_atomic) {
   if (node->kind == ND_VAR && node->ty->kind != TY_VLA) {
     if ((let_volatile || !(node->ty->qual & Q_VOLATILE)) &&
@@ -3257,7 +3257,7 @@ static Obj *eval_var_ofs(Node *node, int *ofs, bool let_array, bool let_volatile
                        .let_array = let_array,
                        .let_volatile = let_volatile,
                        .let_atomic = let_atomic};
-    if (eval_ctx(node, &ctx, &offset) && ctx.var) {
+    if (eval_ctx(pctx, node, &ctx, &offset) && ctx.var) {
       *ofs = offset;
       return ctx.var;
     }
@@ -3265,12 +3265,12 @@ static Obj *eval_var_ofs(Node *node, int *ofs, bool let_array, bool let_volatile
   return NULL;
 }
 
-static Obj *eval_var(Node *node, int *ofs, bool let_volatile) {
-  return eval_var_ofs(node, ofs, true, let_volatile, true);
+static Obj *eval_var(ParseCtx *pctx, Node *node, int *ofs, bool let_volatile) {
+  return eval_var_ofs(pctx, node, ofs, true, let_volatile, true);
 }
 
-Obj *eval_var_opt(Node *node, int *ofs, bool let_subarray, bool let_atomic) {
-  return eval_var_ofs(node, ofs, let_subarray, true, let_atomic);
+Obj *eval_var_opt(ParseCtx *pctx, Node *node, int *ofs, bool let_subarray, bool let_atomic) {
+  return eval_var_ofs(pctx, node, ofs, let_subarray, true, let_atomic);
 }
 
 static bool is_static_const_var(Obj *var, int ofs, int read_sz) {
@@ -3286,20 +3286,20 @@ static bool is_static_const_var(Obj *var, int ofs, int read_sz) {
   return true;
 }
 
-static char *eval_constexpr_data(Node *node) {
+static char *eval_constexpr_data(ParseCtx *pctx, Node *node) {
   int32_t ofs;
-  Obj *var = eval_var(node, &ofs, false);
+  Obj *var = eval_var(pctx, node, &ofs, false);
 
   if (!var || !(var->constexpr_data ||
                 var->is_string_lit ||
                 is_static_const_var(var, ofs, node->ty->size)))
-    return (char *)eval_error(node);
+    return (char *)eval_error(pctx, node);
 
   int32_t access_sz = !is_bitfield(node) ? node->ty->size
                                          : bitfield_footprint(node->m.member);
 
   if (ofs < 0 || (var->ty->size < (ofs + access_sz)))
-    return (char *)eval_error2(node, "constexpr access out of bounds");
+    return (char *)eval_error2(pctx, node, "constexpr access out of bounds");
 
   if (var->constexpr_data)
     return var->constexpr_data + ofs;
@@ -3316,28 +3316,28 @@ int64_t eval_sign_extend(Type *ty, int64_t val) {
   return val;
 }
 
-static void eval_void(Node *node) {
+static void eval_void(ParseCtx *pctx, Node *node) {
   if (node->kind == ND_VAR) {
     if (!node->m.var->constexpr_data)
-      eval_error(node);
+      eval_error(pctx, node);
     return;
   }
   if (node->ty->kind == TY_BITINT)
-    free(eval_bitint(node));
+    free(eval_bitint(pctx, node));
   else if (is_flonum(node->ty))
-    eval_double(node);
+    eval_double(pctx, node);
   else
-    eval(node);
+    eval(pctx, node);
 }
 
-static int64_t eval_cmp(Node *node) {
+static int64_t eval_cmp(ParseCtx *pctx, Node *node) {
   Node *lhs = node->m.lhs;
   Node *rhs = node->m.rhs;
 
   if (lhs->ty->kind == TY_BITINT) {
-    uint64_t *lval = eval_bitint(lhs);
-    uint64_t *rval = eval_bitint(rhs);
-    if (eval_recover && *eval_recover)
+    uint64_t *lval = eval_bitint(pctx, lhs);
+    uint64_t *rval = eval_bitint(pctx, rhs);
+    if (pctx->eval_recover && *pctx->eval_recover)
       return free(lval), free(rval), 0;
 
     int res = eval_bitint_cmp(lhs->ty->bit_cnt, lval, rval, lhs->ty->is_unsigned);
@@ -3353,41 +3353,41 @@ static int64_t eval_cmp(Node *node) {
     }
   } else if (is_flonum(lhs->ty)) {
     switch (node->kind) {
-    case ND_EQ: return eval_double(lhs) == eval_double(rhs);
-    case ND_NE: return eval_double(lhs) != eval_double(rhs);
-    case ND_LT: return eval_double(lhs) < eval_double(rhs);
-    case ND_LE: return eval_double(lhs) <= eval_double(rhs);
-    case ND_GT: return eval_double(lhs) > eval_double(rhs);
-    case ND_GE: return eval_double(lhs) >= eval_double(rhs);
+    case ND_EQ: return eval_double(pctx, lhs) == eval_double(pctx, rhs);
+    case ND_NE: return eval_double(pctx, lhs) != eval_double(pctx, rhs);
+    case ND_LT: return eval_double(pctx, lhs) <  eval_double(pctx, rhs);
+    case ND_LE: return eval_double(pctx, lhs) <= eval_double(pctx, rhs);
+    case ND_GT: return eval_double(pctx, lhs) >  eval_double(pctx, rhs);
+    case ND_GE: return eval_double(pctx, lhs) >= eval_double(pctx, rhs);
     }
   } else if (lhs->ty->is_unsigned) {
     switch (node->kind) {
-    case ND_EQ: return (uint64_t)eval(lhs) == (uint64_t)eval(rhs);
-    case ND_NE: return (uint64_t)eval(lhs) != (uint64_t)eval(rhs);
-    case ND_LT: return (uint64_t)eval(lhs) < (uint64_t)eval(rhs);
-    case ND_LE: return (uint64_t)eval(lhs) <= (uint64_t)eval(rhs);
-    case ND_GT: return (uint64_t)eval(lhs) > (uint64_t)eval(rhs);
-    case ND_GE: return (uint64_t)eval(lhs) >= (uint64_t)eval(rhs);
+    case ND_EQ: return (uint64_t)eval(pctx, lhs) == (uint64_t)eval(pctx, rhs);
+    case ND_NE: return (uint64_t)eval(pctx, lhs) != (uint64_t)eval(pctx, rhs);
+    case ND_LT: return (uint64_t)eval(pctx, lhs) <  (uint64_t)eval(pctx, rhs);
+    case ND_LE: return (uint64_t)eval(pctx, lhs) <= (uint64_t)eval(pctx, rhs);
+    case ND_GT: return (uint64_t)eval(pctx, lhs) >  (uint64_t)eval(pctx, rhs);
+    case ND_GE: return (uint64_t)eval(pctx, lhs) >= (uint64_t)eval(pctx, rhs);
     }
   } else {
     switch (node->kind) {
-    case ND_EQ: return eval(lhs) == eval(rhs);
-    case ND_NE: return eval(lhs) != eval(rhs);
-    case ND_LT: return eval(lhs) < eval(rhs);
-    case ND_LE: return eval(lhs) <= eval(rhs);
-    case ND_GT: return eval(lhs) > eval(rhs);
-    case ND_GE: return eval(lhs) >= eval(rhs);
+    case ND_EQ: return eval(pctx, lhs) == eval(pctx, rhs);
+    case ND_NE: return eval(pctx, lhs) != eval(pctx, rhs);
+    case ND_LT: return eval(pctx, lhs) <  eval(pctx, rhs);
+    case ND_LE: return eval(pctx, lhs) <= eval(pctx, rhs);
+    case ND_GT: return eval(pctx, lhs) >  eval(pctx, rhs);
+    case ND_GE: return eval(pctx, lhs) >= eval(pctx, rhs);
     }
   }
   internal_error();
 }
 
-static int64_t eval(Node *node) {
-  return eval2(node, &(EvalContext){.kind = EV_CONST});
+static int64_t eval(ParseCtx *pctx, Node *node) {
+  return eval2(pctx, node, &(EvalContext){.kind = EV_CONST});
 }
 
-static int64_t eval2(Node *node, EvalContext *ctx) {
-  if (eval_recover && *eval_recover)
+static int64_t eval2(ParseCtx *pctx, Node *node, EvalContext *ctx) {
+  if (pctx->eval_recover && *pctx->eval_recover)
     return 0;
 
   Type *ty = node->ty;
@@ -3395,14 +3395,14 @@ static int64_t eval2(Node *node, EvalContext *ctx) {
   Node *rhs = node->m.rhs;
 
   switch (node->kind) {
-  case ND_ADD: return eval_sign_extend(ty, eval2(lhs, ctx) + eval2(rhs, ctx));
-  case ND_SUB: return eval_sign_extend(ty, eval2(lhs, ctx) - eval(rhs));
-  case ND_MUL: return eval_sign_extend(ty, eval(lhs) * eval(rhs));
+  case ND_ADD: return eval_sign_extend(ty, eval2(pctx, lhs, ctx) + eval2(pctx, rhs, ctx));
+  case ND_SUB: return eval_sign_extend(ty, eval2(pctx, lhs, ctx) - eval(pctx, rhs));
+  case ND_MUL: return eval_sign_extend(ty, eval(pctx, lhs) * eval(pctx, rhs));
   case ND_DIV: {
-    int64_t lval = eval(lhs);
-    int64_t rval = eval(rhs);
+    int64_t lval = eval(pctx, lhs);
+    int64_t rval = eval(pctx, rhs);
     if (!rval)
-      return eval_error2(rhs, "division by zero during constant evaluation");
+      return eval_error2(pctx, rhs, "division by zero during constant evaluation");
     if (ty->is_unsigned)
       return (uint64_t)lval / rval;
     if ((lval == INT64_MIN || lval == INT32_MIN) && rval == -1)
@@ -3410,40 +3410,40 @@ static int64_t eval2(Node *node, EvalContext *ctx) {
     return lval / rval;
   }
   case ND_MOD: {
-    int64_t lval = eval(lhs);
-    int64_t rval = eval(rhs);
+    int64_t lval = eval(pctx, lhs);
+    int64_t rval = eval(pctx, rhs);
     if (!rval)
-      return eval_error2(rhs, "remainder by zero during constant evaluation");
+      return eval_error2(pctx, rhs, "remainder by zero during constant evaluation");
     if (ty->is_unsigned)
       return (uint64_t)lval % rval;
     if (lval == INT64_MIN && rval == -1)
       return 0;
     return lval % rval;
   }
-  case ND_POS:    return eval(lhs);
-  case ND_NEG:    return eval_sign_extend(ty, -eval(lhs));
-  case ND_BITAND: return eval(lhs) & eval(rhs);
-  case ND_BITOR:  return eval(lhs) | eval(rhs);
-  case ND_BITXOR: return eval(lhs) ^ eval(rhs);
-  case ND_SHL:    return eval_sign_extend(ty, eval(lhs) << eval(rhs));
+  case ND_POS:    return eval(pctx, lhs);
+  case ND_NEG:    return eval_sign_extend(ty, -eval(pctx, lhs));
+  case ND_BITAND: return eval(pctx, lhs) & eval(pctx, rhs);
+  case ND_BITOR:  return eval(pctx, lhs) | eval(pctx, rhs);
+  case ND_BITXOR: return eval(pctx, lhs) ^ eval(pctx, rhs);
+  case ND_SHL:    return eval_sign_extend(ty, eval(pctx, lhs) << eval(pctx, rhs));
   case ND_SHR:
     if (ty->size == 4)
-      return (uint32_t)eval(lhs) >> eval(rhs);
-    return (uint64_t)eval(lhs) >> eval(rhs);
+      return (uint32_t)eval(pctx, lhs) >> eval(pctx, rhs);
+    return (uint64_t)eval(pctx, lhs) >> eval(pctx, rhs);
   case ND_SAR:
     if (ty->size == 4)
-      return (int32_t)eval(lhs) >> eval(rhs);
-    return eval(lhs) >> eval(rhs);
+      return (int32_t)eval(pctx, lhs) >> eval(pctx, rhs);
+    return eval(pctx, lhs) >> eval(pctx, rhs);
   case ND_EQ:
   case ND_NE:
   case ND_LT:
   case ND_LE:
   case ND_GT:
-  case ND_GE: return eval_cmp(node);
+  case ND_GE: return eval_cmp(pctx, node);
   case ND_COND:
     return eval(node->ctrl.cond) ? eval2(node->ctrl.then, ctx) : eval2(node->ctrl.els, ctx);
   case ND_COMMA: {
-    eval_void(lhs);
+    eval_void(pctx, lhs);
     return eval2(rhs, ctx);
   }
   case ND_NOT:    return !eval(lhs);
@@ -3453,7 +3453,7 @@ static int64_t eval2(Node *node, EvalContext *ctx) {
   case ND_CAST: {
     if (lhs->ty->kind == TY_BITINT) {
       uint64_t *val = eval_bitint(lhs);
-      if (eval_recover && *eval_recover)
+      if (pctx->eval_recover && *pctx->eval_recover)
         return free(val), 0;
 
       if (ty->kind == TY_BOOL) {
@@ -3494,7 +3494,7 @@ static int64_t eval2(Node *node, EvalContext *ctx) {
   if (ctx->kind == EV_AGGREGATE) {
     if (((ty->qual & Q_ATOMIC) && !ctx->let_atomic) ||
         ((ty->qual & Q_VOLATILE) && !ctx->let_volatile))
-      return eval_error(node);
+      return eval_error(pctx, node);
 
     if (node->kind == ND_DEREF) {
       ctx->deref_cnt++;
@@ -3511,7 +3511,7 @@ static int64_t eval2(Node *node, EvalContext *ctx) {
 
     if (ctx->deref_cnt < 0) {
       if (!ctx->let_array)
-        return eval_error(node);
+        return eval_error(pctx, node);
       ctx->let_array = false;
       ctx->deref_cnt = 0;
     }
@@ -3552,11 +3552,11 @@ static int64_t eval2(Node *node, EvalContext *ctx) {
   if (ctx->kind == EV_CONST) {
     if (node->kind == ND_ADDR) {
       int64_t ofs;
-      if (eval_non_var_ofs(lhs, &ofs))
+      if (eval_non_var_ofs(pctx, lhs, &ofs))
         return ofs;
     }
     if (is_integer(ty) || ty->kind == TY_PTR || ty->kind == TY_NULLPTR) {
-      char *data = eval_constexpr_data(node);
+      char *data = eval_constexpr_data(pctx, node);
       if (data) {
         if (!is_bitfield(node))
           return eval_sign_extend(ty, read_buf(data, ty->size));
@@ -3585,41 +3585,41 @@ static int64_t eval2(Node *node, EvalContext *ctx) {
       }
     }
   }
-  return eval_error(node);
+  return eval_error(pctx, node);
 }
 
-bool is_const_expr(Node *node, int64_t *val) {
+bool is_const_expr(ParseCtx *pctx, Node *node, int64_t *val) {
   add_type(node);
   bool failed = false;
-  bool *prev = eval_recover;
-  eval_recover = &failed;
+  bool *prev = pctx->eval_recover;
+  pctx->eval_recover = &failed;
 
   int64_t v = eval(node);
   if (val)
     *val = v;
-  eval_recover = prev;
+  pctx->eval_recover = prev;
   return !failed;
 }
 
-bool is_const_fp(Node *node, FPVal *fval) {
+bool is_const_fp(ParseCtx *pctx, Node *node, FPVal *fval) {
   bool failed = false;
-  bool *prev = eval_recover;
-  eval_recover = &failed;
+  bool *prev = pctx->eval_recover;
+  pctx->eval_recover = &failed;
 
   eval_fp(node, fval);
 
-  eval_recover = prev;
+  pctx->eval_recover = prev;
   return !failed;
 }
 
-bool is_const_zero_bitint(Node *node) {
+bool is_const_zero_bitint(ParseCtx *pctx, Node *node) {
   bool failed = false;
-  bool *prev = eval_recover;
-  eval_recover = &failed;
+  bool *prev = pctx->eval_recover;
+  pctx->eval_recover = &failed;
 
   char *data = (char *)eval_bitint_clean(node);
 
-  eval_recover = prev;
+  pctx->eval_recover = prev;
 
   if (!failed)
     for (int i = 0; i < node->ty->size; i++)
@@ -3630,8 +3630,8 @@ bool is_const_zero_bitint(Node *node) {
   return !failed;
 }
 
-static int64_t const_expr2(Token **rest, Token *tok, Type **ty) {
-  Node *node = conditional(rest, tok);
+static int64_t const_expr2(ParseCtx *pctx, Token **rest, Token *tok, Type **ty) {
+  Node *node = conditional(pctx, rest, tok);
   add_type(node);
   if (!is_integer(node->ty))
     error_tok(tok, "constant expression not integer");
@@ -3640,12 +3640,12 @@ static int64_t const_expr2(Token **rest, Token *tok, Type **ty) {
   return eval(node);
 }
 
-int64_t const_expr(Token **rest, Token *tok) {
-  return const_expr2(rest, tok, NULL);
+int64_t const_expr(ParseCtx *pctx, Token **rest, Token *tok) {
+  return const_expr2(pctx, rest, tok, NULL);
 }
 
-static int64_t align_expr(Token **rest, Token *tok) {
-  int64_t val = const_expr2(rest, tok, NULL);
+static int64_t align_expr(ParseCtx *pctx, Token **rest, Token *tok) {
+  int64_t val = const_expr2(pctx, rest, tok, NULL);
   if (!is_pow_of_two(val))
     error_tok(tok, "alignment not power of two");
   return val;
@@ -3695,8 +3695,8 @@ void eval_fp(Node *node, FPVal *fval) {
   }
 }
 
-static long_double_t eval_double(Node *node) {
-  if (eval_recover && *eval_recover)
+static long_double_t eval_double(ParseCtx *pctx, Node *node) {
+  if (pctx->eval_recover && *pctx->eval_recover)
     return false;
 
   Type *ty = node->ty;
@@ -3710,7 +3710,7 @@ static long_double_t eval_double(Node *node) {
   case ND_DIV: {
     long_double_t lval = eval_double(lhs);
     long_double_t rval = eval_double(rhs);
-    if (rval == 0 && !is_const_context())
+    if (rval == 0 && !is_const_context(pctx))
       break;
     return eval_fp_cast(lval / rval, ty);
   }
@@ -3720,7 +3720,7 @@ static long_double_t eval_double(Node *node) {
     return eval(node->ctrl.cond) ? eval_double(node->ctrl.then)
                                  : eval_double(node->ctrl.els);
   case ND_COMMA: {
-    eval_void(lhs);
+    eval_void(pctx, lhs);
     return eval_double(rhs);
   }
   case ND_CAST:
@@ -3746,15 +3746,15 @@ static long_double_t eval_double(Node *node) {
     return node->num.fval;
   }
 
-  char *data = eval_constexpr_data(node);
+  char *data = eval_constexpr_data(pctx, node);
   if (data)
     return read_double_buf(data, ty);
 
-  return eval_error(node);
+  return eval_error(pctx, node);
 }
 
-static uint64_t *eval_bitint(Node *node) {
-  if (eval_recover && *eval_recover)
+static uint64_t *eval_bitint(ParseCtx *pctx, Node *node) {
+  if (pctx->eval_recover && *pctx->eval_recover)
     return NULL;
 
   Type *ty = node->ty;
@@ -3772,7 +3772,7 @@ static uint64_t *eval_bitint(Node *node) {
   case ND_MOD: {
     uint64_t *lval = eval_bitint(lhs);
     uint64_t *rval = eval_bitint(rhs);
-    if (eval_recover && *eval_recover)
+    if (pctx->eval_recover && *pctx->eval_recover)
       return free(lval), free(rval), NULL;
 
     switch (node->kind) {
@@ -3786,7 +3786,7 @@ static uint64_t *eval_bitint(Node *node) {
     case ND_MOD: {
       bool res = eval_bitint_to_bool(ty->bit_cnt, rval);
       if (!res)
-        return (void *)eval_error2(node, "division by zero during constant evaluation");
+        return (void *)eval_error2(pctx, node, "division by zero during constant evaluation");
       eval_bitint_div(ty->bit_cnt, lval, rval, ty->is_unsigned, node->kind == ND_DIV);
       break;
     }
@@ -3798,7 +3798,7 @@ static uint64_t *eval_bitint(Node *node) {
   case ND_SAR: {
     uint64_t *val = eval_bitint(lhs);
     uint64_t amount = eval(rhs);
-    if (eval_recover && *eval_recover)
+    if (pctx->eval_recover && *pctx->eval_recover)
       return free(val), NULL;
 
     if (amount >= ty->bit_cnt)
@@ -3814,7 +3814,7 @@ static uint64_t *eval_bitint(Node *node) {
   case ND_POS:
   case ND_NEG: {
     uint64_t *val = eval_bitint(lhs);
-    if (eval_recover && *eval_recover)
+    if (pctx->eval_recover && *pctx->eval_recover)
       return free(val), NULL;
 
     switch (node->kind) {
@@ -3827,13 +3827,13 @@ static uint64_t *eval_bitint(Node *node) {
     return eval(node->ctrl.cond) ? eval_bitint(node->ctrl.then)
                                  : eval_bitint(node->ctrl.els);
   case ND_COMMA: {
-    eval_void(lhs);
+    eval_void(pctx, lhs);
     return eval_bitint(rhs);
   }
   case ND_CAST:
     if (lhs->ty->kind == TY_BITINT) {
       uint64_t *val = eval_bitint(lhs);
-      if (eval_recover && *eval_recover)
+      if (pctx->eval_recover && *pctx->eval_recover)
         return NULL;
 
       val = realloc(val, MAX(ty->size, 8));
@@ -3857,7 +3857,7 @@ static uint64_t *eval_bitint(Node *node) {
   }
   }
 
-  char *data = eval_constexpr_data(node);
+  char *data = eval_constexpr_data(pctx, node);
   if (data) {
     uint64_t *val = malloc(MAX(ty->size, 8));
     if (is_bitfield(node)) {
@@ -3870,7 +3870,7 @@ static uint64_t *eval_bitint(Node *node) {
     return val;
   }
 
-  return (void *)eval_error(node);
+  return (void *)eval_error(pctx, node);
 }
 
 static uint64_t *eval_bitint_clean(Node *node) {
@@ -3882,7 +3882,7 @@ static uint64_t *eval_bitint_clean(Node *node) {
   return val;
 }
 
-static Node *atomic_op(Node *binary, bool return_old) {
+static Node *atomic_op(ParseCtx *pctx, Node *binary, bool return_old) {
   // ({
   //   T *addr = &obj; T old = *addr; T new;
   //   do {
@@ -3900,44 +3900,44 @@ static Node *atomic_op(Node *binary, bool return_old) {
   Obj *old = new_lvar(binary->m.lhs->ty);
   Obj *new = new_lvar(binary->m.lhs->ty);
 
-  cur = cur->next = new_unary(ND_EXPR_STMT,
-                              new_binary(ND_ASSIGN, new_var_node(addr, tok),
-                                         new_unary(ND_ADDR, binary->m.lhs, tok), tok),
+  cur = cur->next = new_unary(pctx->slimcc_ctx, ND_EXPR_STMT,
+                              new_binary(pctx->slimcc_ctx, ND_ASSIGN, new_var_node(pctx->slimcc_ctx, addr, tok),
+                                         new_unary(pctx->slimcc_ctx, ND_ADDR, binary->m.lhs, tok), tok),
                               tok);
 
-  cur = cur->next = new_unary(ND_EXPR_STMT,
-                              new_binary(ND_ASSIGN, new_var_node(val, tok), binary->m.rhs,
+  cur = cur->next = new_unary(pctx->slimcc_ctx, ND_EXPR_STMT,
+                              new_binary(pctx->slimcc_ctx, ND_ASSIGN, new_var_node(pctx->slimcc_ctx, val, tok), binary->m.rhs,
                                          tok),
                               tok);
 
-  cur = cur->next = new_unary(ND_EXPR_STMT,
-                              new_binary(ND_ASSIGN, new_var_node(old, tok),
-                                         new_unary(ND_DEREF, new_var_node(addr, tok), tok),
+  cur = cur->next = new_unary(pctx->slimcc_ctx, ND_EXPR_STMT,
+                              new_binary(pctx->slimcc_ctx, ND_ASSIGN, new_var_node(pctx->slimcc_ctx, old, tok),
+                                         new_unary(pctx->slimcc_ctx, ND_DEREF, new_var_node(pctx->slimcc_ctx, addr, tok), tok),
                                          tok),
                               tok);
 
-  Node *loop = new_node(ND_DO, tok);
-  loop->ctrl.then = new_unary(ND_EXPR_STMT,
-                              new_binary(ND_ASSIGN, new_var_node(new, tok),
-                                         new_binary(binary->kind, new_var_node(old, tok),
-                                                    new_var_node(val, tok), tok),
+  Node *loop = new_node(pctx->slimcc_ctx, ND_DO, tok);
+  loop->ctrl.then = new_unary(pctx->slimcc_ctx, ND_EXPR_STMT,
+                              new_binary(pctx->slimcc_ctx, ND_ASSIGN, new_var_node(pctx->slimcc_ctx, new, tok),
+                                         new_binary(pctx->slimcc_ctx, binary->kind, new_var_node(pctx->slimcc_ctx, old, tok),
+                                                    new_var_node(pctx->slimcc_ctx, val, tok), tok),
                                          tok),
                               tok);
 
-  Node *cas = new_node(ND_CAS, tok);
-  cas->cas.addr = new_var_node(addr, tok);
-  cas->cas.old_val = new_unary(ND_ADDR, new_var_node(old, tok), tok);
-  cas->cas.new_val = new_var_node(new, tok);
+  Node *cas = new_node(pctx->slimcc_ctx, ND_CAS, tok);
+  cas->cas.addr = new_var_node(pctx->slimcc_ctx, addr, tok);
+  cas->cas.old_val = new_unary(pctx->slimcc_ctx, ND_ADDR, new_var_node(pctx->slimcc_ctx, old, tok), tok);
+  cas->cas.new_val = new_var_node(pctx->slimcc_ctx, new, tok);
 
-  loop->ctrl.cond = new_unary(ND_NOT, cas, tok);
+  loop->ctrl.cond = new_unary(pctx->slimcc_ctx, ND_NOT, cas, tok);
   cur = cur->next = loop;
 
   if (return_old)
-    cur = cur->next = new_unary(ND_EXPR_STMT, new_var_node(old, tok), tok);
+    cur = cur->next = new_unary(pctx->slimcc_ctx, ND_EXPR_STMT, new_var_node(pctx->slimcc_ctx, old, tok), tok);
   else
-    cur = cur->next = new_unary(ND_EXPR_STMT, new_var_node(new, tok), tok);
+    cur = cur->next = new_unary(pctx->slimcc_ctx, ND_EXPR_STMT, new_var_node(pctx->slimcc_ctx, new, tok), tok);
 
-  Node *node = new_node(ND_STMT_EXPR, tok);
+  Node *node = new_node(pctx->slimcc_ctx, ND_STMT_EXPR, tok);
   node->blk.body = head.next;
   node->blk.result = cur;
   node->ty = binary->m.lhs->ty;
@@ -3947,12 +3947,12 @@ static Node *atomic_op(Node *binary, bool return_old) {
   return node;
 }
 
-static Node *atomic_builtin_op(Token **rest, Token *tok, bool return_old) {
+static Node *atomic_builtin_op(ParseCtx *pctx, Token **rest, Token *tok, bool return_old) {
   Token *start = tok;
   tok = skip(tok->next, "(");
-  Node *obj = new_unary(ND_DEREF, assign(&tok, tok), start);
+  Node *obj = new_unary(pctx->slimcc_ctx, ND_DEREF, assign(pctx, &tok, tok), start);
   tok = skip(tok, ",");
-  Node *val = assign(&tok, tok);
+  Node *val = assign(pctx, &tok, tok);
   if (consume(&tok, tok, ","))
     ident_tok(&tok, tok);
   *rest = skip(tok, ")");
@@ -3962,28 +3962,28 @@ static Node *atomic_builtin_op(Token **rest, Token *tok, bool return_old) {
   int len = start->len - 23;
 
   if (equal_substr(loc, len, "add"))
-    binary = new_add(obj, val, start);
+    binary = new_add(pctx, obj, val, start);
   else if (equal_substr(loc, len, "sub"))
-    binary = new_sub(obj, val, start);
+    binary = new_sub(pctx, obj, val, start);
   else if (equal_substr(loc, len, "and"))
-    binary = new_binary(ND_BITAND, obj, val, start);
+    binary = new_binary(pctx->slimcc_ctx, ND_BITAND, obj, val, start);
   else if (equal_substr(loc, len, "or"))
-    binary = new_binary(ND_BITOR, obj, val, start);
+    binary = new_binary(pctx->slimcc_ctx, ND_BITOR, obj, val, start);
   else if (equal_substr(loc, len, "xor"))
-    binary = new_binary(ND_BITXOR, obj, val, start);
+    binary = new_binary(pctx->slimcc_ctx, ND_BITXOR, obj, val, start);
   else
     error_tok(start, "unsupported atomic op");
 
   add_type(binary->m.lhs);
   add_type(binary->m.rhs);
-  return atomic_op(binary, return_old);
+  return atomic_op(pctx, binary, return_old);
 }
 
-static Node *to_assign(Node *binary) {
+static Node *to_assign(ParseCtx *pctx, Node *binary) {
   add_type(binary->m.lhs);
 
   if (binary->m.lhs->ty->qual & Q_ATOMIC)
-    return atomic_op(binary, false);
+    return atomic_op(pctx, binary, false);
 
   binary->arith_kind = binary->kind;
   binary->kind = ND_ARITH_ASSIGN;
@@ -3991,65 +3991,65 @@ static Node *to_assign(Node *binary) {
   return binary;
 }
 
-static Node *assign2(Token **rest, Token *tok, Node *node) {
+static Node *assign2(ParseCtx *pctx, Token **rest, Token *tok, Node *node) {
   // Convert A = B to (tmp = B, atomic_exchange(&A, tmp), tmp)
   if (equal(tok, "=") && (node->ty->qual & Q_ATOMIC)) {
-    Node *rhs = assign(rest, tok->next);
+    Node *rhs = assign(pctx, rest, tok->next);
     add_type(rhs);
     Obj *tmp = new_lvar(rhs->ty);
-    Node *expr = new_binary(ND_ASSIGN, new_var_node(tmp, tok), rhs, tok);
-    chain_expr(&expr, new_binary(ND_EXCH, new_unary(ND_ADDR, node, tok),
-                                 new_var_node(tmp, tok), tok));
-    chain_expr(&expr, new_var_node(tmp, tok));
+    Node *expr = new_binary(pctx->slimcc_ctx, ND_ASSIGN, new_var_node(pctx->slimcc_ctx, tmp, tok), rhs, tok);
+    chain_expr(pctx->slimcc_ctx, &expr, new_binary(pctx->slimcc_ctx, ND_EXCH, new_unary(pctx->slimcc_ctx, ND_ADDR, node, tok),
+                                 new_var_node(pctx->slimcc_ctx, tmp, tok), tok));
+    chain_expr(pctx->slimcc_ctx, &expr, new_var_node(pctx->slimcc_ctx, tmp, tok));
     return expr;
   }
 
   if (equal(tok, "="))
-    return new_binary(ND_ASSIGN, node, assign(rest, tok->next), tok);
+    return new_binary(pctx->slimcc_ctx, ND_ASSIGN, node, assign(pctx, rest, tok->next), tok);
 
   if (equal(tok, "+="))
-    return to_assign(new_add(node, assign(rest, tok->next), tok));
+    return to_assign(pctx, new_add(pctx, node, assign(pctx, rest, tok->next), tok));
 
   if (equal(tok, "-="))
-    return to_assign(new_sub(node, assign(rest, tok->next), tok));
+    return to_assign(pctx, new_sub(pctx, node, assign(pctx, rest, tok->next), tok));
 
   if (equal(tok, "*="))
-    return to_assign(new_binary(ND_MUL, node, assign(rest, tok->next), tok));
+    return to_assign(pctx, new_binary(pctx->slimcc_ctx, ND_MUL, node, assign(pctx, rest, tok->next), tok));
 
   if (equal(tok, "/="))
-    return to_assign(new_binary(ND_DIV, node, assign(rest, tok->next), tok));
+    return to_assign(pctx, new_binary(pctx->slimcc_ctx, ND_DIV, node, assign(pctx, rest, tok->next), tok));
 
   if (equal(tok, "%="))
-    return to_assign(new_binary(ND_MOD, node, assign(rest, tok->next), tok));
+    return to_assign(pctx, new_binary(pctx->slimcc_ctx, ND_MOD, node, assign(pctx, rest, tok->next), tok));
 
   if (equal(tok, "&="))
-    return to_assign(new_binary(ND_BITAND, node, assign(rest, tok->next), tok));
+    return to_assign(pctx, new_binary(pctx->slimcc_ctx, ND_BITAND, node, assign(pctx, rest, tok->next), tok));
 
   if (equal(tok, "|="))
-    return to_assign(new_binary(ND_BITOR, node, assign(rest, tok->next), tok));
+    return to_assign(pctx, new_binary(pctx->slimcc_ctx, ND_BITOR, node, assign(pctx, rest, tok->next), tok));
 
   if (equal(tok, "^="))
-    return to_assign(new_binary(ND_BITXOR, node, assign(rest, tok->next), tok));
+    return to_assign(pctx, new_binary(pctx->slimcc_ctx, ND_BITXOR, node, assign(pctx, rest, tok->next), tok));
 
   if (equal(tok, "<<="))
-    return to_assign(new_binary(ND_SHL, node, assign(rest, tok->next), tok));
+    return to_assign(pctx, new_binary(pctx->slimcc_ctx, ND_SHL, node, assign(pctx, rest, tok->next), tok));
 
   if (equal(tok, ">>=")) {
     if (node->ty->is_unsigned)
-      return to_assign(new_binary(ND_SHR, node, assign(rest, tok->next), tok));
+      return to_assign(pctx, new_binary(pctx->slimcc_ctx, ND_SHR, node, assign(pctx, rest, tok->next), tok));
     else
-      return to_assign(new_binary(ND_SAR, node, assign(rest, tok->next), tok));
+      return to_assign(pctx, new_binary(pctx->slimcc_ctx, ND_SAR, node, assign(pctx, rest, tok->next), tok));
   }
 
   return NULL;
 }
 
-static Node *assign(Token **rest, Token *tok) {
-  Node *node = conditional(&tok, tok);
+static Node *assign(ParseCtx *pctx, Token **rest, Token *tok) {
+  Node *node = conditional(pctx, &tok, tok);
   add_type(node);
 
   if (!node->is_nonlval && !(node->ty->qual & Q_CONST) && !is_decay_ty(node->ty)) {
-    Node *n = assign2(&tok, tok, node);
+    Node *n = assign2(pctx, &tok, tok, node);
     if (n) {
       n->is_nonlval = true;
       node = n;
@@ -4059,17 +4059,17 @@ static Node *assign(Token **rest, Token *tok) {
   return node;
 }
 
-static Node *vla_cond_result_len2(Type *ty) {
+static Node *vla_cond_result_len2(ParseCtx *pctx, Type *ty) {
   if (!ty->vla_len_expr)
     return NULL;
   if (!ty->vla_len_val)
     internal_error();
-  return new_var_node(ty->vla_len_val, ty->vla_len_expr->tok);
+  return new_var_node(pctx->slimcc_ctx, ty->vla_len_val, ty->vla_len_expr->tok);
 }
 
-Type *vla_cond_result_len(Type *ty1, Type *ty2, Type *base, Node **cond, Obj **cond_var) {
-  Node *len1 = vla_cond_result_len2(ty1);
-  Node *len2 = vla_cond_result_len2(ty2);
+Type *vla_cond_result_len(ParseCtx *pctx, Type *ty1, Type *ty2, Type *base, Node **cond, Obj **cond_var) {
+  Node *len1 = vla_cond_result_len2(pctx, ty1);
+  Node *len2 = vla_cond_result_len2(pctx, ty2);
 
   if (!len1 + !len2 == 1)
     return vla_of(base, len1 ? len1 : len2, 0);
@@ -4079,33 +4079,33 @@ Type *vla_cond_result_len(Type *ty1, Type *ty2, Type *base, Node **cond, Obj **c
     if (is_const_expr(*cond, &val))
       return vla_of(base, val ? len1 : len2, 0);
 
-    *cond_var = new_lvar2(ty_bool, base_scope());
-    *cond = new_binary(ND_ASSIGN, new_var_node(*cond_var, (*cond)->tok), *cond,
+    *cond_var = new_lvar2(ty_bool, base_scope(pctx));
+    *cond = new_binary(pctx->slimcc_ctx, ND_ASSIGN, new_var_node(pctx->slimcc_ctx, *cond_var, (*cond)->tok), *cond,
                        (*cond)->tok);
     add_type(*cond);
   }
-  Node *node = new_node(ND_COND, (*cond)->tok);
-  node->ctrl.cond = new_var_node(*cond_var, (*cond)->tok);
+  Node *node = new_node(pctx->slimcc_ctx, ND_COND, (*cond)->tok);
+  node->ctrl.cond = new_var_node(pctx->slimcc_ctx, *cond_var, (*cond)->tok);
   node->ctrl.then = len1;
   node->ctrl.els = len2;
   return vla_of(base, node, 0);
 }
 
-static Node *conditional(Token **rest, Token *tok) {
-  Node *cond = binary(&tok, tok, PCD_LOGOR);
+static Node *conditional(ParseCtx *pctx, Token **rest, Token *tok) {
+  Node *cond = binary(pctx, &tok, tok, PCD_LOGOR);
 
   if (!equal(tok, "?")) {
     *rest = tok;
     return cond;
   }
-  Node *node = new_node(ND_COND, tok);
+  Node *node = new_node(pctx->slimcc_ctx, ND_COND, tok);
   node->is_nonlval = true;
 
   if (!consume(&tok, tok->next, ":")) {
-    node->ctrl.then = expression(&tok, tok->next);
+    node->ctrl.then = expression(pctx, &tok, tok->next);
     tok = skip(tok, ":");
   }
-  node->ctrl.els = conditional(rest, tok);
+  node->ctrl.els = conditional(pctx, rest, tok);
 
   if (node->ctrl.then) {
     node->ctrl.cond = cond_cast(cond);
@@ -4114,35 +4114,35 @@ static Node *conditional(Token **rest, Token *tok) {
   int64_t val;
   Node n = *cond;
   if (is_const_expr(cond_cast(&n), &val)) {
-    node->ctrl.cond = new_boolean(!!val, cond->tok);
+    node->ctrl.cond = new_boolean(pctx->slimcc_ctx, !!val, cond->tok);
     node->ctrl.then = cond;
     return node;
   }
   add_type(cond);
-  enter_tmp_scope();
+  enter_tmp_scope(pctx);
   Obj *var = new_lvar(cond->ty);
-  node->ctrl.cond = cond_cast(new_binary(ND_ASSIGN, new_var_node(var, cond->tok), cond,
+  node->ctrl.cond = cond_cast(new_binary(pctx->slimcc_ctx, ND_ASSIGN, new_var_node(pctx->slimcc_ctx, var, cond->tok), cond,
                                          tok));
-  node->ctrl.then = new_var_node(var, cond->tok);
-  leave_scope();
+  node->ctrl.then = new_var_node(pctx->slimcc_ctx, var, cond->tok);
+  leave_scope(pctx);
   return node;
 }
 
-static Node *binary(Token **rest, Token *tok, Preced stop) {
-  Node *node = unary(&tok, tok);
+static Node *binary(ParseCtx *pctx, Token **rest, Token *tok, Preced stop) {
+  Node *node = unary(pctx, &tok, tok);
 
   for (;;) {
     Token *start = tok;
     if (equal(tok, "*")) {
-      node = new_binary(ND_MUL, node, unary(&tok, tok->next), start);
+      node = new_binary(pctx->slimcc_ctx, ND_MUL, node, unary(pctx, &tok, tok->next), start);
       continue;
     }
     if (equal(tok, "/")) {
-      node = new_binary(ND_DIV, node, unary(&tok, tok->next), start);
+      node = new_binary(pctx->slimcc_ctx, ND_DIV, node, unary(pctx, &tok, tok->next), start);
       continue;
     }
     if (equal(tok, "%")) {
-      node = new_binary(ND_MOD, node, unary(&tok, tok->next), start);
+      node = new_binary(pctx->slimcc_ctx, ND_MOD, node, unary(pctx, &tok, tok->next), start);
       continue;
     }
     if (stop == PCD_MUL)
@@ -4153,11 +4153,11 @@ static Node *binary(Token **rest, Token *tok, Preced stop) {
   for (;;) {
     Token *start = tok;
     if (equal(tok, "+")) {
-      node = new_add(node, binary(&tok, tok->next, PCD_MUL), start);
+      node = new_add(pctx, node, binary(pctx, &tok, tok->next, PCD_MUL), start);
       continue;
     }
     if (equal(tok, "-")) {
-      node = new_sub(node, binary(&tok, tok->next, PCD_MUL), start);
+      node = new_sub(pctx, node, binary(pctx, &tok, tok->next, PCD_MUL), start);
       continue;
     }
     if (stop == PCD_ADD)
@@ -4168,15 +4168,15 @@ static Node *binary(Token **rest, Token *tok, Preced stop) {
   for (;;) {
     Token *start = tok;
     if (equal(tok, "<<")) {
-      node = new_binary(ND_SHL, node, binary(&tok, tok->next, PCD_ADD), start);
+      node = new_binary(pctx->slimcc_ctx, ND_SHL, node, binary(pctx, &tok, tok->next, PCD_ADD), start);
       continue;
     }
     if (equal(tok, ">>")) {
       add_type(node);
       if (node->ty->is_unsigned)
-        node = new_binary(ND_SHR, node, binary(&tok, tok->next, PCD_ADD), start);
+        node = new_binary(pctx->slimcc_ctx, ND_SHR, node, binary(pctx, &tok, tok->next, PCD_ADD), start);
       else
-        node = new_binary(ND_SAR, node, binary(&tok, tok->next, PCD_ADD), start);
+        node = new_binary(pctx->slimcc_ctx, ND_SAR, node, binary(pctx, &tok, tok->next, PCD_ADD), start);
       continue;
     }
     if (stop == PCD_SHFT)
@@ -4187,19 +4187,19 @@ static Node *binary(Token **rest, Token *tok, Preced stop) {
   for (;;) {
     Token *start = tok;
     if (equal(tok, "<")) {
-      node = new_binary(ND_LT, node, binary(&tok, tok->next, PCD_SHFT), start);
+      node = new_binary(pctx->slimcc_ctx, ND_LT, node, binary(pctx, &tok, tok->next, PCD_SHFT), start);
       continue;
     }
     if (equal(tok, "<=")) {
-      node = new_binary(ND_LE, node, binary(&tok, tok->next, PCD_SHFT), start);
+      node = new_binary(pctx->slimcc_ctx, ND_LE, node, binary(pctx, &tok, tok->next, PCD_SHFT), start);
       continue;
     }
     if (equal(tok, ">")) {
-      node = new_binary(ND_GT, node, binary(&tok, tok->next, PCD_SHFT), start);
+      node = new_binary(pctx->slimcc_ctx, ND_GT, node, binary(pctx, &tok, tok->next, PCD_SHFT), start);
       continue;
     }
     if (equal(tok, ">=")) {
-      node = new_binary(ND_GE, node, binary(&tok, tok->next, PCD_SHFT), start);
+      node = new_binary(pctx->slimcc_ctx, ND_GE, node, binary(pctx, &tok, tok->next, PCD_SHFT), start);
       continue;
     }
     if (stop == PCD_CMP)
@@ -4210,11 +4210,11 @@ static Node *binary(Token **rest, Token *tok, Preced stop) {
   for (;;) {
     Token *start = tok;
     if (equal(tok, "==")) {
-      node = new_binary(ND_EQ, node, binary(&tok, tok->next, PCD_CMP), start);
+      node = new_binary(pctx->slimcc_ctx, ND_EQ, node, binary(pctx, &tok, tok->next, PCD_CMP), start);
       continue;
     }
     if (equal(tok, "!=")) {
-      node = new_binary(ND_NE, node, binary(&tok, tok->next, PCD_CMP), start);
+      node = new_binary(pctx->slimcc_ctx, ND_NE, node, binary(pctx, &tok, tok->next, PCD_CMP), start);
       continue;
     }
     if (stop == PCD_EQ)
@@ -4225,7 +4225,7 @@ static Node *binary(Token **rest, Token *tok, Preced stop) {
   for (;;) {
     Token *start = tok;
     if (equal(tok, "&")) {
-      node = new_binary(ND_BITAND, node, binary(&tok, tok->next, PCD_EQ), start);
+      node = new_binary(pctx->slimcc_ctx, ND_BITAND, node, binary(pctx, &tok, tok->next, PCD_EQ), start);
       continue;
     }
     if (stop == PCD_BITAND)
@@ -4236,7 +4236,7 @@ static Node *binary(Token **rest, Token *tok, Preced stop) {
   for (;;) {
     Token *start = tok;
     if (equal(tok, "^")) {
-      node = new_binary(ND_BITXOR, node, binary(&tok, tok->next, PCD_BITAND), start);
+      node = new_binary(pctx->slimcc_ctx, ND_BITXOR, node, binary(pctx, &tok, tok->next, PCD_BITAND), start);
       continue;
     }
     if (stop == PCD_XOR)
@@ -4247,7 +4247,7 @@ static Node *binary(Token **rest, Token *tok, Preced stop) {
   for (;;) {
     Token *start = tok;
     if (equal(tok, "|")) {
-      node = new_binary(ND_BITOR, node, binary(&tok, tok->next, PCD_XOR), start);
+      node = new_binary(pctx->slimcc_ctx, ND_BITOR, node, binary(pctx, &tok, tok->next, PCD_XOR), start);
       continue;
     }
     if (stop == PCD_BITOR)
@@ -4258,8 +4258,8 @@ static Node *binary(Token **rest, Token *tok, Preced stop) {
   for (;;) {
     Token *start = tok;
     if (equal(tok, "&&")) {
-      node = new_binary(ND_LOGAND, cond_cast(node),
-                        cond_cast(binary(&tok, tok->next, PCD_BITOR)), start);
+      node = new_binary(pctx->slimcc_ctx, ND_LOGAND, cond_cast(node),
+                        cond_cast(binary(pctx, &tok, tok->next, PCD_BITOR)), start);
       continue;
     }
     if (stop == PCD_LOGAND)
@@ -4270,8 +4270,8 @@ static Node *binary(Token **rest, Token *tok, Preced stop) {
   for (;;) {
     Token *start = tok;
     if (equal(tok, "||")) {
-      node = new_binary(ND_LOGOR, cond_cast(node),
-                        cond_cast(binary(&tok, tok->next, PCD_LOGAND)), start);
+      node = new_binary(pctx->slimcc_ctx, ND_LOGOR, cond_cast(node),
+                        cond_cast(binary(pctx, &tok, tok->next, PCD_LOGAND)), start);
       continue;
     }
     break;
@@ -4280,78 +4280,78 @@ static Node *binary(Token **rest, Token *tok, Preced stop) {
   return node;
 }
 
-static Node *new_add(Node *lhs, Node *rhs, Token *tok) {
+static Node *new_add(ParseCtx *pctx, Node *lhs, Node *rhs, Token *tok) {
   add_type(lhs);
   add_type(rhs);
 
   if (is_numeric(lhs->ty) && is_numeric(rhs->ty))
-    return new_binary(ND_ADD, lhs, rhs, tok);
+    return new_binary(pctx->slimcc_ctx, ND_ADD, lhs, rhs, tok);
 
   ptr_convert(&lhs);
   ptr_convert(&rhs);
 
   if (lhs->ty->base && is_integer(rhs->ty)) {
-    Node *sz = ptr_base_size(lhs->ty, tok);
-    rhs = new_binary(ND_MUL, sz, rhs, tok);
-    return new_binary(ND_ADD, lhs, rhs, tok);
+    Node *sz = ptr_base_size(pctx->slimcc_ctx, lhs->ty, tok);
+    rhs = new_binary(pctx->slimcc_ctx, ND_MUL, sz, rhs, tok);
+    return new_binary(pctx->slimcc_ctx, ND_ADD, lhs, rhs, tok);
   }
 
   if (is_integer(lhs->ty) && rhs->ty->base) {
-    Node *sz = ptr_base_size(rhs->ty, tok);
+    Node *sz = ptr_base_size(pctx->slimcc_ctx, rhs->ty, tok);
     if (is_vm_ty(rhs->ty)) {
-      lhs = new_binary(ND_MUL, sz, lhs, tok);
-      return new_binary(ND_ADD, rhs, lhs, tok);
+      lhs = new_binary(pctx->slimcc_ctx, ND_MUL, sz, lhs, tok);
+      return new_binary(pctx->slimcc_ctx, ND_ADD, rhs, lhs, tok);
     }
-    lhs = new_binary(ND_MUL, lhs, sz, tok);
-    return new_binary(ND_ADD, lhs, rhs, tok);
+    lhs = new_binary(pctx->slimcc_ctx, ND_MUL, lhs, sz, tok);
+    return new_binary(pctx->slimcc_ctx, ND_ADD, lhs, rhs, tok);
   }
 
   error_tok(tok, "invalid operands");
 }
 
-static Node *new_sub(Node *lhs, Node *rhs, Token *tok) {
+static Node *new_sub(ParseCtx *pctx, Node *lhs, Node *rhs, Token *tok) {
   add_type(lhs);
   add_type(rhs);
 
   if (is_numeric(lhs->ty) && is_numeric(rhs->ty))
-    return new_binary(ND_SUB, lhs, rhs, tok);
+    return new_binary(pctx->slimcc_ctx, ND_SUB, lhs, rhs, tok);
 
   ptr_convert(&lhs);
   ptr_convert(&rhs);
 
   if (lhs->ty->base && is_integer(rhs->ty)) {
-    Node *sz = ptr_base_size(lhs->ty, tok);
-    return new_binary(ND_SUB, lhs, new_binary(ND_MUL, rhs, sz, tok), tok);
+    Node *sz = ptr_base_size(pctx->slimcc_ctx, lhs->ty, tok);
+    return new_binary(pctx->slimcc_ctx, ND_SUB, lhs, new_binary(pctx->slimcc_ctx, ND_MUL, rhs, sz, tok), tok);
   }
 
   if (lhs->ty->base && rhs->ty->base && is_compatible(lhs->ty->base, rhs->ty->base)) {
-    Node *sz = new_cast(ptr_base_size(lhs->ty, tok), ty_ptrdiff_t);
+    Node *sz = new_cast(ptr_base_size(pctx->slimcc_ctx, lhs->ty, tok), ty_ptrdiff_t);
     lhs = new_cast(lhs, ty_ptrdiff_t);
     rhs = new_cast(rhs, ty_ptrdiff_t);
-    return new_binary(ND_DIV, new_binary(ND_SUB, lhs, rhs, tok), sz, tok);
+    return new_binary(pctx->slimcc_ctx, ND_DIV, new_binary(pctx->slimcc_ctx, ND_SUB, lhs, rhs, tok), sz, tok);
   }
 
   error_tok(tok, "invalid operands");
 }
 
-static Type *sizeof_arg(Token **rest, Token *tok, Node **expr) {
+static Type *sizeof_arg(ParseCtx *pctx, Token **rest, Token *tok, Node **expr) {
   Type *ty;
   VarAttr attr = {0};
-  if (is_typename_paren(rest, tok, &ty, &attr)) {
+  if (is_typename_paren(pctx, rest, tok, &ty, &attr)) {
     *expr = attr.typeof_vm_expr;
     return ty;
   }
-  *expr = unary(rest, tok);
+  *expr = unary(pctx, rest, tok);
   add_type(*expr);
   return (*expr)->ty;
 }
 
-static Node *unary(Token **rest, Token *tok) {
+static Node *unary(ParseCtx *pctx, Token **rest, Token *tok) {
   // Casts
   {
     Type *ty;
     VarAttr attr = {0};
-    if (is_typename_paren(&tok, tok, &ty, &attr)) {
+    if (is_typename_paren(pctx, &tok, tok, &ty, &attr)) {
       Node *calc = calc_vla2(ty, tok, &attr);
 
       Node *node = new_cast(unary(rest, tok), ty);
