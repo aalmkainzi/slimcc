@@ -8,15 +8,6 @@ typedef enum {
   FILE_LDARG,
 } FileType;
 
-typedef enum {
-  LT_RELO,
-  LT_SHARED,
-  LT_DYNAMIC,
-  LT_STATIC_PIE,
-  LT_STATIC,
-  LT_PIE,
-} LinkType;
-
 static void cc1(char *input_file, char *output, bool is_asm_pp);
 
 static void version(void) {
@@ -362,106 +353,6 @@ static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork, Slimc
     if (take_arg_s(argv, &i, &arg, "-x")) {
       strarray_push(&input_args, "-x");
       strarray_push(&input_args, arg);
-      continue;
-    }
-
-    if (take_arg_s(argv, &i, &arg, "-L")) {
-      strarray_push(&libpaths, arg);
-      continue;
-    }
-
-    if (comma_arg(argv[i], &as_args, "-Wa,"))
-      continue;
-
-    if (startswith(argv[i], &arg, "-Wl,")) {
-      strarray_push(&input_args, argv[i]);
-      has_wl = true;
-      continue;
-    }
-
-    if (take_arg_s(argv, &i, &arg, "-l")) {
-      strarray_push(&input_args, format("-Wl,-l%s", arg));
-      has_wl = true;
-      continue;
-    }
-
-    if (take_arg(argv, &i, &arg, "-Xlinker")) {
-      strarray_push(&input_args, format("-Wl,%s", arg));
-      has_wl = true;
-      continue;
-    }
-
-    if (take_arg_s(argv, &i, &arg, "-z")) {
-      strarray_push(&input_args, format("-Wl,-z,%s", arg));
-      has_wl = true;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "-s")) {
-      opt_s = true;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "-M")) {
-      opt_M = true;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "-MM")) {
-      opt_M = opt_MM = true;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "-MD")) {
-      opt_MD = true;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "-MMD")) {
-      opt_MD = opt_MMD = true;
-      continue;
-    }
-
-    if (take_arg(argv, &i, &arg, "-MF")) {
-      opt_MF = arg;
-      continue;
-    }
-
-    if (startswith(argv[i], &arg, "-Wp,-MD,")) {
-      opt_MD = true;
-      opt_MF = arg;
-      continue;
-    }
-
-    if (startswith(argv[i], &arg, "-Wp,-MMD,")) {
-      opt_MD = opt_MMD = true;
-      opt_MF = arg;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "-MG")) {
-      opt_MG = true;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "-MP")) {
-      opt_MP = true;
-      continue;
-    }
-
-    if (take_arg(argv, &i, &arg, "-MT") || startswith(argv[i], &arg, "-Wp,-MT,")) {
-      if (opt_MT == NULL)
-        opt_MT = arg;
-      else
-        opt_MT = format("%s %s", opt_MT, arg);
-      continue;
-    }
-
-    if (take_arg(argv, &i, &arg, "-MQ") || startswith(argv[i], &arg, "-Wp,-MQ,")) {
-      if (opt_MT == NULL)
-        opt_MT = quote_makefile(arg);
-      else
-        opt_MT = format("%s %s", opt_MT, quote_makefile(arg));
       continue;
     }
 

@@ -636,22 +636,25 @@ struct Scope {
   HashMap tags;
 };
 
-Node *new_cast(Node *expr, Type *ty);
-int64_t const_expr(Token **rest, Token *tok);
+typedef struct SlimccCtx SlimccCtx;
+typedef struct ParseCtx ParseCtx;
+
+Node *new_cast(SlimccCtx *sctx, Node *expr, Type *ty);
+int64_t const_expr(ParseCtx *pctx, Token **rest, Token *tok);
 int64_t eval_sign_extend(Type *ty, int64_t val);
-void eval_fp(Node *node, FPVal *fval);
-Obj *parse(Token *tok);
+void eval_fp(ParseCtx*, Node *node, FPVal *fval);
+Obj *parse(ParseCtx *pctx, Token *tok);
 Token *skip_paren(Token *tok);
-Obj *new_lvar(Type *ty);
+Obj *new_lvar(ParseCtx*, Type *ty);
 bool is_const_var(Obj *var);
-bool is_const_expr(Node *node, int64_t *val);
-bool is_const_fp(Node *node, FPVal *fval);
-bool is_const_zero_bitint(Node *node);
-Obj *eval_var_opt(Node *node, int *ofs, bool let_array, bool let_atomic);
+bool is_const_expr(ParseCtx*, Node *node, int64_t *val);
+bool is_const_fp(ParseCtx*, Node *node, FPVal *fval);
+bool is_const_zero_bitint(ParseCtx*,Node *node);
+Obj *eval_var_opt(ParseCtx*, Node *node, int *ofs, bool let_array, bool let_atomic);
 bool equal_tok(Token *a, Token *b);
 char *new_unique_name(void);
-Obj *get_symbol_var(char *);
-Type *vla_cond_result_len(Type *ty1, Type *ty2, Type *base, Node **cond, Obj **cond_var);
+Obj *get_symbol_var(ParseCtx*, char *);
+Type *vla_cond_result_len(ParseCtx*, Type *ty1, Type *ty2, Type *base, Node **cond, Obj **cond_var);
 
 //
 // bitint.c
