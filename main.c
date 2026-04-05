@@ -94,42 +94,24 @@ static bool set_true(char *p, char *str, bool *opt) {
   return set_bool(p, true, str, opt);
 }
 
-static void set_std(bool is_iso, char *arg) {
+static void set_std(SlimccOptions *opts, bool is_iso, char *arg) {
   char *end;
   int val = strtoul(arg, &end, 10);
 
   if (end - arg == 2) {
-    is_iso_std = is_iso;
+    opts->is_iso_std = is_iso;
 
     switch (val) {
     case 89:
-    case 90: opt_std = STD_C89; return;
-    case 99: opt_std = STD_C99; return;
-    case 11: opt_std = STD_C11; return;
+    case 90: opts->opt_std = STD_C89; return;
+    case 99: opts->opt_std = STD_C99; return;
+    case 11: opts->opt_std = STD_C11; return;
     case 17:
-    case 18: opt_std = STD_C17; return;
-    case 23: opt_std = STD_C23; return;
+    case 18: opts->opt_std = STD_C17; return;
+    case 23: opts->opt_std = STD_C23; return;
     }
   }
   error("unknown c standard");
-}
-
-void set_fpic(char *lvl) {
-  opt_fpic = true;
-  opt_fpie = false;
-  define_macro("__pic__", lvl);
-  define_macro("__PIC__", lvl);
-  undef_macro("__pie__");
-  undef_macro("__PIE__");
-}
-
-void set_fpie(char *lvl) {
-  opt_fpic = false;
-  opt_fpie = true;
-  define_macro("__pic__", lvl);
-  define_macro("__PIC__", lvl);
-  define_macro("__pie__", lvl);
-  define_macro("__PIE__", lvl);
 }
 
 static void macrochange_push(MacroChangeArr *arr, char *arg, bool is_def) {
@@ -142,14 +124,14 @@ static void macrochange_push(MacroChangeArr *arr, char *arg, bool is_def) {
   m->is_def = is_def;
 }
 
-static void build_macros(MacroChangeArr *arr, bool is_asm_pp) {
+static void build_macros(SlimccOptions *opts, MacroChangeArr *arr, bool is_asm_pp) {
   if (is_asm_pp) {
     define_macro("__ASSEMBLER__", "1");
   } else {
-    if (is_iso_std)
+    if (opts->is_iso_std)
       define_macro("__STRICT_ANSI__", "1");
 
-    switch (opt_std) {
+    switch (opts->opt_std) {
     case STD_C99: define_macro("__STDC_VERSION__", "199901L"); break;
     case STD_C11: define_macro("__STDC_VERSION__", "201112L"); break;
     case STD_C17: define_macro("__STDC_VERSION__", "201710L"); break;
@@ -195,49 +177,38 @@ static char *quote_makefile(char *s) {
   return buf;
 }
 
-static void build_incl_paths(char *opt_B, bool opt_nostdinc, StringArray *isystem,
+static void build_incl_paths(SlimccOptions *opts, char *opt_B, bool opt_nostdinc, StringArray *isystem,
                              StringArray *idirafter) {
   if (opt_B)
-    add_include_path(&sysincl_paths, opt_B);
+    add_include_path(&opts->sysincl_paths, opt_B);
 
   for (int i = 0; i < isystem->len; i++)
-    add_include_path(&sysincl_paths, isystem->data[i]);
+    add_include_path(&opts->sysincl_paths, isystem->data[i]);
 
   if (!opt_nostdinc)
-    platform_stdinc_paths(&sysincl_paths);
+    platform_stdinc_paths(&opts->sysincl_paths);
 
   for (int i = 0; i < idirafter->len; i++)
-    add_include_path(&sysincl_paths, idirafter->data[i]);
+    add_include_path(&opts->sysincl_paths, idirafter->data[i]);
 
   // Filter system directories passed as -I
-  for (int i = 0; i < include_paths.len; i++) {
+  for (int i = 0; i < opts->include_paths.len; i++) {
     bool match = false;
-    for (int j = 0; j < sysincl_paths.len; j++)
-      if ((match = !strcmp(sysincl_paths.data[j], include_paths.data[i])))
+    for (int j = 0; j < opts->sysincl_paths.len; j++)
+      if ((match = !strcmp(opts->sysincl_paths.data[j], opts->include_paths.data[i])))
         break;
     if (!match)
-      include_paths.data[incl_cnt++] = include_paths.data[i];
+      opts->include_paths.data[opts->incl_cnt++] = opts->include_paths.data[i];
   }
-  include_paths.len = incl_cnt;
+  opts->include_paths.len = opts->incl_cnt;
 
-  for (int i = 0; i < sysincl_paths.len; i++)
-    strarray_push(&include_paths, sysincl_paths.data[i]);
+  for (int i = 0; i < opts->sysincl_paths.len; i++)
+    strarray_push(&opts->include_paths, opts->sysincl_paths.data[i]);
 }
 
-static void build_ld_paths(char *opt_B, StringArray *paths) {
-  if (opt_B)
-    strarray_push(&ld_paths, opt_B);
-
-  for (int i = 0; i < paths->len; i++)
-    strarray_push(&ld_paths, paths->data[i]);
-
-  platform_search_dirs(&ld_paths);
-}
-
-static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork, SlimccOptions *opts) {
+static void parse_args(SlimccOptions *opts, int argc, char **argv, bool *run_ld, bool *no_fork) {
   char *arg;
   int input_cnt = 0;
-  char *opt_B = NULL;
   bool has_wl = false;
   bool has_gnu_keywords_option = false;
   bool opt_nostdinc = false;
@@ -256,7 +227,7 @@ static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork, Slimc
     }
 
     if (take_arg_s(argv, &i, &arg, "-I")) {
-      add_include_path(&include_paths, arg);
+      add_include_path(&opts->include_paths, arg);
       continue;
     }
 
@@ -271,38 +242,38 @@ static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork, Slimc
     }
 
     if (take_arg_s(argv, &i, &arg, "-iquote")) {
-      add_include_path(&iquote_paths, arg);
+      add_include_path(&opts->iquote_paths, arg);
       continue;
     }
 
     if (take_arg_s(argv, &i, &arg, "-D")) {
-      macrochange_push(&macrodefs, arg, true);
+      macrochange_push(&opts->macrodefs, arg, true);
       continue;
     }
 
     if (take_arg_s(argv, &i, &arg, "-U")) {
-      macrochange_push(&macrodefs, arg, false);
+      macrochange_push(&opts->macrodefs, arg, false);
       continue;
     }
 
     if (take_arg_s(argv, &i, &arg, "-imacros")) {
-      strarray_push(&opt_imacros, arg);
+      strarray_push(&opts->opt_imacros, arg);
       continue;
     }
 
     if (take_arg_s(argv, &i, &arg, "-include")) {
-      strarray_push(&opt_include, arg);
+      strarray_push(&opts->opt_include, arg);
       continue;
     }
 
     if (take_arg_s(argv, &i, &arg, "-x")) {
-      strarray_push(&input_args, "-x");
-      strarray_push(&input_args, arg);
+      strarray_push(&opts->input_args, "-x");
+      strarray_push(&opts->input_args, arg);
       continue;
     }
 
     if (!strcmp(argv[i], "-ansi")) {
-      set_std(true, "89");
+      set_std(opts, true, "89");
       continue;
     }
 
@@ -310,9 +281,9 @@ static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork, Slimc
         startswith(argv[i], &arg, "--std=") ||
         take_arg(argv, &i, &arg, "--std")) {
       if (startswith(arg, &arg, "c"))
-        set_std(true, arg);
+        set_std(opts, true, arg);
       else if (startswith(arg, &arg, "gnu"))
-        set_std(false, arg);
+        set_std(opts, false, arg);
       else
         error("unknown c standard");
       continue;
@@ -321,21 +292,21 @@ static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork, Slimc
     if (startswith(argv[i], &arg, "-f")) {
       bool b = !startswith(arg, &arg, "no-");
 
-      if (set_bool(arg, b, "short-enums", &opt_short_enums))
+      if (set_bool(arg, b, "short-enums", &opts->opt_short_enums))
         continue;
 
-      if (set_bool(arg, b, "ms-anon-struct", &opt_ms_anon_struct))
+      if (set_bool(arg, b, "ms-anon-struct", &opts->opt_ms_anon_struct))
         continue;
 
       if (!strcmp(arg, "gnu-keywords")) {
-        opt_gnu_keywords = b;
+        opts->opt_gnu_keywords = b;
         has_gnu_keywords_option = true;
         continue;
       }
 
       // -f only options
       if (b) {
-        if (set_true(arg, "defer-ts", &opt_fdefer_ts)) {
+        if (set_true(arg, "defer-ts", &opts->opt_fdefer_ts)) {
           define_macro("__STDC_DEFER_TS25755__", "2");
           continue;
         }
@@ -347,7 +318,6 @@ static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork, Slimc
 
     if (argv[i][0] == '-') {
       arg = (argv[i][1] == '-') ? &argv[i][2] : &argv[i][1];
-
     }
 
     if (!strcmp(argv[i], "-nostdinc")) {
@@ -355,8 +325,8 @@ static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork, Slimc
       continue;
     }
 
-    if (set_bool(argv[i], true, "-Werror", &opt_werror) ||
-        set_bool(argv[i], false, "-Wno-error", &opt_werror))
+    if (set_bool(argv[i], true, "-Werror", &opts->opt_werror) ||
+        set_bool(argv[i], false, "-Wno-error", &opts->opt_werror))
       continue;
 
     if (startswith(argv[i], &arg, "-W")) {
@@ -396,38 +366,18 @@ static void parse_args(int argc, char **argv, bool *run_ld, bool *no_fork, Slimc
     error("unknown argument: %s", argv[i]);
   }
 
-  if (!opt_E && opt_dM)
-    error("option -dM without -E not supported");
-
-  if (opt_disable_visibility && opt_visibility)
-    error("-fvisibility disabled with -fdisable-visibility");
-
   if (!has_gnu_keywords_option)
-    opt_gnu_keywords = !is_iso_std;
+    opts->opt_gnu_keywords = !opts->is_iso_std;
 
-  if (opt_B) {
-    char *as_b = format("%s/%s", opt_B, default_as);
-    char *ld_b = format("%s/%s", opt_B, default_ld);
-    if (file_exists(as_b))
-      default_as = as_b;
-    if (file_exists(ld_b))
-      default_ld = ld_b;
-  }
-
-  build_incl_paths(opt_B, opt_nostdinc, &isystem, &idirafter);
-  build_ld_paths(opt_B, &libpaths);
+  build_incl_paths(opts, NULL, opt_nostdinc, &isystem, &idirafter);
 
   bool no_input = !input_cnt && !has_wl;
-  if (opt_hash_hash_hash || opt_verbose) {
-    version();
-    if (no_input)
-      exit(0);
-  }
+
   if (no_input)
     error("no input files");
 
   *no_fork = (input_cnt == 1);
-  *run_ld = has_wl && !(opt_c || opt_S || opt_E);
+  *run_ld = has_wl;
 }
 
 static FILE *open_file(char *path) {
@@ -453,58 +403,7 @@ static bool endswith(char *p, char *q) {
   return (len1 >= len2) && !strcmp(p + len1 - len2, q);
 }
 
-// Replace file extension
-static char *replace_extn(char *tmpl, char *extn) {
-  char *filename = basename(strdup(tmpl));
-  char *dot = strrchr(filename, '.');
-  if (dot)
-    *dot = '\0';
-  return format("%s%s", filename, extn);
-}
-
-static void cleanup(void) {
-  for (int i = 0; i < tmpfiles.len; i++)
-    unlink(tmpfiles.data[i]);
-}
-
-static char *create_tmpfile(void) {
-  char *path = strdup("/tmp/slimcc-XXXXXX");
-  int fd = mkstemp(path);
-  if (fd == -1)
-    error("mkstemp failed: %s", strerror(errno));
-  close(fd);
-
-  strarray_push(&tmpfiles, path);
-  return path;
-}
-
-void run_subprocess(char **argv) {
-  if (opt_hash_hash_hash || opt_verbose) {
-    fprintf(stderr, "\"%s\"", argv[0]);
-    for (int i = 1; argv[i]; i++)
-      fprintf(stderr, " \"%s\"", argv[i]);
-    fprintf(stderr, "\n");
-    if (opt_hash_hash_hash)
-      return;
-  }
-
-  if (fork() == 0) {
-    execvp(argv[0], argv);
-    fprintf(stderr, "exec failed: %s: %s\n", argv[0], strerror(errno));
-    _exit(1);
-  }
-
-  int status;
-  if (wait(&status) <= 0 || status != 0) {
-    fprintf(stderr, "exec failed: %s\n", argv[0]);
-    exit(1);
-  }
-}
-
 static void run_cc1(char *input, char *output, bool no_fork, bool is_asm_pp) {
-  if (opt_hash_hash_hash)
-    return;
-
   if (no_fork) {
     cc1(input, output, is_asm_pp);
     return;
