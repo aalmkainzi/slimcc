@@ -873,19 +873,6 @@ void run_linker(StringArray *paths, StringArray *inputs, char *output);
 
 typedef enum { STD_C89, STD_C99, STD_C11, STD_C17, STD_C23 } StdVer;
 
-bool file_exists(char *path);
-bool in_sysincl_path(int idx);
-bool ignore_missing_dep(char *path, char *filename, Token *tok);
-void add_dep_file(char *path, bool is_sys);
-char *find_dir_w_file(char *pattern);
-void run_subprocess(char **argv);
-void set_fpic(char *lvl);
-void set_fpie(char *lvl);
-void add_include_path(StringArray *arr, char *s);
-void run_assembler_gnustyle(StringArray *as_args, char *input, char *output);
-void run_linker_gnustyle(StringArray *paths, StringArray *inputs, char *output,
-                         char *ldso_path, char *libpath, char *gcclibpath);
-
 typedef struct {
   char *arg;
   bool is_def;
@@ -896,7 +883,6 @@ typedef struct {
   int capacity;
   int len;
 } MacroChangeArr;
-
 
 typedef struct SlimccOptions
 {
@@ -921,6 +907,19 @@ typedef struct SlimccOptions
   int incl_cnt;
   char *argv0;
 } SlimccOptions;
+
+bool file_exists(char *path);
+bool in_sysincl_path(SlimccOptions *opts, int idx);
+bool ignore_missing_dep(char *path, char *filename, Token *tok);
+void add_dep_file(char *path, bool is_sys);
+char *find_dir_w_file(char *pattern);
+void run_subprocess(char **argv);
+void set_fpic(char *lvl);
+void set_fpie(char *lvl);
+void add_include_path(StringArray *arr, char *s);
+void run_assembler_gnustyle(StringArray *as_args, char *input, char *output);
+void run_linker_gnustyle(StringArray *paths, StringArray *inputs, char *output,
+                         char *ldso_path, char *libpath, char *gcclibpath);
 
 extern Type *ty_void;
 extern Type *ty_bool;

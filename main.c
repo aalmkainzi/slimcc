@@ -8,7 +8,7 @@ typedef enum {
   FILE_LDARG,
 } FileType;
 
-static void cc1(char *input_file, char *output, bool is_asm_pp);
+static void cc1(SlimccOptions *opts, char *input_file, char *output, bool is_asm_pp);
 
 static void version(void) {
   puts("slimcc version 0.0");
@@ -403,14 +403,14 @@ static bool endswith(char *p, char *q) {
   return (len1 >= len2) && !strcmp(p + len1 - len2, q);
 }
 
-static void run_cc1(char *input, char *output, bool no_fork, bool is_asm_pp) {
+static void run_cc1(SlimccOptions *opts, char *input, char *output, bool no_fork, bool is_asm_pp) {
   if (no_fork) {
-    cc1(input, output, is_asm_pp);
+    cc1(opts, input, output, is_asm_pp);
     return;
   }
 
   if (fork() == 0) {
-    cc1(input, output, is_asm_pp);
+    cc1(opts, input, output, is_asm_pp);
     _exit(0);
   }
 
@@ -419,8 +419,8 @@ static void run_cc1(char *input, char *output, bool no_fork, bool is_asm_pp) {
     exit(1);
 }
 
-static void print_linemarker(FILE *out, Token *tok) {
-  char *name = display_files.data[tok->display_file_no];
+static void print_linemarker(SlimccOptions *opts, FILE *out, Token *tok) {
+  char *name = opts->display_files.data[tok->display_file_no];
   if (!strcmp(name, "-"))
     name = "<stdin>";
   if (!tok->at_bol)
@@ -456,29 +456,11 @@ bool in_sysincl_path(SlimccOptions *opts, int idx) {
 
 bool ignore_missing_dep(char *path, char *filename, Token *tok) {
   if (!path) {
-    if (opt_MG) {
-      add_dep_file(filename, false);
-      return true;
-    }
     if (tok)
       error_tok(tok, "file not found");
     error("`%s` file not found", filename);
   }
   return false;
-}
-
-void add_dep_file(char *path, bool is_sys) {
-  if (opt_M || opt_MD) {
-    if (is_sys && (opt_MM || opt_MMD))
-      return;
-
-    static HashMap map;
-    HashEntry *ent = hashmap_get_or_insert(&map, path, strlen(path));
-    if (ent->val)
-      return;
-    ent->val = (void *)1;
-    strarray_push(&dep_files, path);
-  }
 }
 
 static char *skip_dot_slash(char *p) {
@@ -489,64 +471,16 @@ static char *skip_dot_slash(char *p) {
   return p;
 }
 
-static void print_dependencies(char *input) {
-  char *path;
-  if (opt_MF)
-    path = opt_MF;
-  else if (opt_MD)
-    path = replace_extn(opt_o ? opt_o : input, ".d");
-  else if (opt_o)
-    path = opt_o;
-  else
-    path = "-";
+static void cc1(SlimccOptions *opts, char *input_file, char *output_file, bool is_asm_pp) {
+  build_macros(opts, &opts->macrodefs, is_asm_pp);
 
-  FILE *out = open_file(path);
-  if (opt_MT)
-    fprintf(out, "%s:", opt_MT);
-  else
-    fprintf(out, "%s:", quote_makefile(replace_extn(input, ".o")));
-
-  for (int i = 0; i < dep_files.len; i++)
-    fprintf(out, " \\\n  %s", skip_dot_slash(dep_files.data[i]));
-
-  fputc('\n', out);
-
-  if (opt_MP)
-    for (int i = 1; i < dep_files.len; i++)
-      fprintf(out, "%s:\n", quote_makefile(skip_dot_slash(dep_files.data[i])));
-
-  close_file(out);
-}
-
-static void cc1(char *input_file, char *output_file, bool is_asm_pp) {
-  if (is_asm_pp)
-    opt_E = opt_cc1_asm_pp = true;
-
-  build_macros(&macrodefs, is_asm_pp);
-
-  Token *tok = preprocess(input_file, &opt_include, &opt_imacros);
-
-  if (opt_M || opt_MD) {
-    print_dependencies(input_file);
-    if (opt_M)
-      return;
-  }
+  Token *tok = preprocess(input_file, &opts->opt_include, &opts->opt_imacros);
 
   FILE *out = open_file(output_file);
 
-  if (opt_E) {
-    if (opt_dM)
-      dump_defines(out);
-    else
-      print_tokens(tok, out);
-
-    close_file(out);
-    return;
-  }
-
   tok = prepare_parse(tok);
-
-  Obj *prog = parse(tok);
+  
+  Obj *prog = parse(0, tok);
 
   codegen(prog, out);
 
@@ -556,7 +490,7 @@ static void cc1(char *input_file, char *output_file, bool is_asm_pp) {
 void run_assembler_gnustyle(StringArray *args, char *input, char *output) {
   StringArray arr = {0};
 
-  strarray_push(&arr, opt_use_as ? opt_use_as : default_as);
+  strarray_push(&arr, "as");
   strarray_push(&arr, input);
   strarray_push(&arr, "-o");
   strarray_push(&arr, output);
@@ -596,169 +530,10 @@ bool file_exists(char *path) {
   return !stat(path, &st);
 }
 
-static LinkType get_link_type(void) {
-  if (opt_r)
-    return LT_RELO;
-  if (opt_shared)
-    return LT_SHARED;
-  if (opt_static_pie)
-    return LT_STATIC_PIE;
-  if (opt_static)
-    return LT_STATIC;
-  if (opt_pie)
-    return LT_PIE;
-  return LT_DYNAMIC;
-}
-
-static LinkType link_type(StringArray *arr, char *ldso_path) {
-  LinkType type = get_link_type();
-
-  switch (type) {
-  case LT_RELO:   strarray_push(arr, "-r"); break;
-  case LT_SHARED: strarray_push(arr, "-shared"); break;
-  case LT_STATIC_PIE:
-    strarray_push(arr, "-static");
-    strarray_push(arr, "-pie");
-    break;
-  case LT_STATIC: strarray_push(arr, "-static"); break;
-  case LT_PIE:    strarray_push(arr, "-pie"); break;
-  }
-
-  switch (type) {
-  case LT_STATIC_PIE: strarray_push(arr, "-no-dynamic-linker"); break;
-  case LT_DYNAMIC:
-  case LT_SHARED:
-  case LT_PIE:
-    if (ldso_path) {
-      if (opt_rdynamic)
-        strarray_push(arr, "--export-dynamic");
-
-      strarray_push(arr, "-dynamic-linker");
-      strarray_push(arr, ldso_path);
-    }
-  }
-  return type;
-}
-
-static void link_libgcc(StringArray *arr, bool link_libgcc, bool is_static) {
-  if (!link_libgcc)
-    return;
-  strarray_push(arr, "-lgcc");
-
-  if (is_static) {
-    strarray_push(arr, "-lgcc_eh");
-  } else {
-    strarray_push(arr, "--push-state");
-    strarray_push(arr, "--as-needed");
-    strarray_push(arr, "-lgcc_s");
-    strarray_push(arr, "--pop-state");
-  }
-}
-
-static void link_libc(StringArray *arr) {
-  if (opt_pthread)
-    strarray_push(arr, "-lpthread");
-  if (!opt_nolibc) {
-    strarray_push(arr, "-lc");
-    strarray_push(arr, "--push-state");
-    strarray_push(arr, "--as-needed");
-    strarray_push(arr, "-lm");
-    strarray_push(arr, "--pop-state");
-  }
-}
-
-void run_linker_gnustyle(StringArray *paths, StringArray *args, char *output,
-                         char *ldso_path, char *libpath, char *gcc_libpath) {
-  StringArray arr = {0};
-
-  strarray_push(&arr, opt_use_ld ? opt_use_ld : default_ld);
-  strarray_push(&arr, "-o");
-  strarray_push(&arr, output);
-  strarray_push(&arr, "-m");
-  strarray_push(&arr, "elf_x86_64");
-  strarray_push(&arr, "--eh-frame-hdr");
-
-  if (opt_s)
-    strarray_push(&arr, "-s");
-
-  LinkType lt = link_type(&arr, ldso_path);
-
-  if (!opt_nostartfiles && lt != LT_RELO) {
-    switch (lt) {
-    case LT_STATIC_PIE: strarray_push(&arr, format("%s/rcrt1.o", libpath)); break;
-    case LT_PIE:        strarray_push(&arr, format("%s/Scrt1.o", libpath)); break;
-    case LT_STATIC:
-    case LT_DYNAMIC:    strarray_push(&arr, format("%s/crt1.o", libpath)); break;
-    }
-    strarray_push(&arr, format("%s/crti.o", libpath));
-
-    if (gcc_libpath) {
-      switch (lt) {
-      case LT_STATIC_PIE:
-      case LT_SHARED:
-      case LT_PIE:        strarray_push(&arr, format("%s/crtbeginS.o", gcc_libpath)); break;
-      case LT_STATIC:     strarray_push(&arr, format("%s/crtbeginT.o", gcc_libpath)); break;
-      case LT_DYNAMIC:    strarray_push(&arr, format("%s/crtbegin.o", gcc_libpath)); break;
-      }
-    }
-  }
-
-  for (int i = 0; i < paths->len; i++) {
-    strarray_push(&arr, "-L");
-    strarray_push(&arr, paths->data[i]);
-  }
-
-  for (int i = 0; i < args->len; i++)
-    strarray_push(&arr, args->data[i]);
-
-  if (!opt_nodefaultlibs && lt != LT_RELO) {
-    if (lt == LT_STATIC_PIE || lt == LT_STATIC) {
-      strarray_push(&arr, "--start-group");
-      link_libgcc(&arr, gcc_libpath, true);
-      link_libc(&arr);
-      strarray_push(&arr, "--end-group");
-    } else {
-      link_libgcc(&arr, gcc_libpath, opt_static_libgcc);
-      link_libc(&arr);
-      link_libgcc(&arr, gcc_libpath, opt_static_libgcc);
-    }
-  }
-
-  if (!opt_nostartfiles && lt != LT_RELO) {
-    if (gcc_libpath) {
-      switch (lt) {
-      case LT_STATIC_PIE:
-      case LT_SHARED:
-      case LT_PIE:        strarray_push(&arr, format("%s/crtendS.o", gcc_libpath)); break;
-      case LT_STATIC:
-      case LT_DYNAMIC:    strarray_push(&arr, format("%s/crtend.o", gcc_libpath)); break;
-      }
-    }
-    strarray_push(&arr, format("%s/crtn.o", libpath));
-  }
-  strarray_push(&arr, NULL);
-
-  run_subprocess(arr.data);
-}
-
 static FileType get_file_type(char *filename) {
   if (endswith(filename, ".c"))
     return FILE_C;
-  if (endswith(filename, ".s"))
-    return FILE_ASM;
-  if (endswith(filename, ".S"))
-    return FILE_PP_ASM;
-  if (!strcmp(filename, "-")) {
-    if (!opt_E)
-      error("-E or -x required when input is from standard input");
-    return FILE_C;
-  }
-  if (endswith(filename, ".h")) {
-    if (!opt_E)
-      error("pch not supported");
-    return FILE_C;
-  }
-  return FILE_LDARG;
+  return FILE_NONE;
 }
 
 int main(int argc, char **argv) {
