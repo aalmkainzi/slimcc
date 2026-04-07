@@ -886,11 +886,10 @@ Node *assign_cast(SlimccOptions *opts, Type *to, Node *expr);
 //
 
 void prepare_funcall(Node *node, Scope *scope);
-void prepare_inline_asm(Node *node);
 int64_t align_to(int64_t n, int64_t align);
-bool va_arg_need_copy(Type *ty);
-bool bitint_rtn_need_copy(size_t width);
-void emit_text(Obj *fn);
+// bool va_arg_need_copy(Type *ty);
+// bool bitint_rtn_need_copy(size_t width);
+// void emit_text(Obj *fn);
 
 //
 // unicode.c

@@ -237,32 +237,6 @@ static void push_ref(Obj *var) {
   fn->refs[fn->ref_cnt++] = var;
 }
 
-static char *get_symbol(Obj *var) {
-  if (codegen_fn && codegen_fn != var) {
-    if (var->is_static_lvar)
-      var->is_live = true;
-    else if (!var->is_definition ||
-             var->is_static ||
-             (var->is_always_inline && opt_fake_always_inline))
-      push_ref(var);
-  }
-  return var->asm_name ? var->asm_name : var->name;
-}
-
-static char *asm_name(Obj *var) {
-  return var->asm_name ? var->asm_name : var->name;
-}
-
-static int get_align(Obj *var) {
-  if (var->ty->kind == TY_VLA)
-    return 8;
-  if (var->alt_align)
-    return var->alt_align;
-  if (var->ty->kind == TY_ARRAY && var->ty->size >= 16)
-    return MAX(16, var->ty->align);
-  return var->ty->align;
-}
-
 static int reg_copy_sz(int rem) {
   if (rem >= 8)
     return 8;
@@ -610,99 +584,6 @@ static int pop_fp(bool is_xmm64, int dest_reg, bool must_be_dest) {
   insrtln("%s %%xmm0, %d(%s)", sl->loc, mv, sl->st_ofs, lvar_ptr);
   Printftn("%s %d(%s), %%xmm%d", mv, sl->st_ofs, lvar_ptr, dest_reg);
   return dest_reg;
-}
-
-static int popf_inreg(bool is_xmm64, int reg) {
-  return pop_fp(is_xmm64, reg, false);
-}
-
-static int popf(int reg) {
-  return pop_fp(true, reg, true);
-}
-
-static void push_x87(void) {
-  push_tmpstack(SL_ST);
-}
-
-static bool pop_x87(void) {
-  Slot *sl = pop_tmpstack(2);
-  insrtln("fldt %s(%s); fstpt %d(%s)", sl->loc, tmpbuf(10), lvar_ptr, sl->st_ofs, lvar_ptr);
-  Printftn("fldt %d(%s); fstpt %s(%s)", sl->st_ofs, lvar_ptr, tmpbuf(10), lvar_ptr);
-  return true;
-}
-
-static void push_bitint(int sz) {
-  for (int ofs = align_to(sz, 8) - 8; ofs >= 0; ofs -= 8)
-    push_tmpstack(SL_ST);
-}
-
-static int pop_bitint(int sz) {
-  int pos = 0;
-  for (int ofs = align_to(sz, 8) - 8; ofs >= 0; ofs -= 8) {
-    Slot *sl = pop_tmpstack(1);
-    pos = sl->st_ofs;
-    insrtln("mov %d+%s(%s), %%rdx; mov %%rdx, %d(%s)", sl->loc, ofs, tmpbuf(sz), lvar_ptr,
-            sl->st_ofs, lvar_ptr);
-  }
-  return pos;
-}
-
-static void push_by_ty(Type *ty) {
-  switch (ty->kind) {
-  case TY_VOID:    return;
-  case TY_LDOUBLE: push_x87(); return;
-  case TY_DOUBLE:
-  case TY_FLOAT:   pushf(); return;
-  case TY_BITINT:  push_bitint(ty->size); return;
-  default:         push(); return;
-  }
-}
-
-static void pop_by_ty(Type *ty) {
-  switch (ty->kind) {
-  case TY_VOID:    return;
-  case TY_LDOUBLE: pop_x87(); return;
-  case TY_DOUBLE:
-  case TY_FLOAT:   popf(0); return;
-  case TY_BITINT: {
-    int pos = pop_bitint(ty->size);
-    char sofs_buf[STRBUF_SZ];
-    snprintf(sofs_buf, STRBUF_SZ, "%d", pos);
-    gen_mem_copy(sofs_buf, lvar_ptr, tmpbuf(ty->size), lvar_ptr, ty->size);
-    return;
-  }
-  default: pop("%rax"); return;
-  }
-}
-
-static void cast_extend_int32(Type *ty, char *from, char *to) {
-  char *insn = ty->is_unsigned ? "movz" : "movs";
-  switch (ty->size) {
-  case 1: Printftn("%sbl %s, %s", insn, from, to); return;
-  case 2: Printftn("%swl %s, %s", insn, from, to); return;
-  case 4: Printftn("movl %s, %s", from, to); return;
-  }
-  internal_error();
-}
-
-static void load_extend_int(Type *ty, char *ofs, char *ptr, char *reg) {
-  char *insn = ty->is_unsigned ? "movz" : "movs";
-  switch (ty->size) {
-  case 1: Printftn("%sbl %s(%s), %s", insn, ofs, ptr, reg); return;
-  case 2: Printftn("%swl %s(%s), %s", insn, ofs, ptr, reg); return;
-  case 4: Printftn("movl %s(%s), %s", ofs, ptr, reg); return;
-  case 8: Printftn("mov %s(%s), %s", ofs, ptr, reg); return;
-  }
-  internal_error();
-}
-
-static void load_extend_int64(Type *ty, char *ofs, char *ptr, char *reg) {
-  switch (ty->size) {
-  case 4: Printftn("movslq %s(%s), %s", ofs, ptr, reg); return;
-  case 2: Printftn("movswq %s(%s), %s", ofs, ptr, reg); return;
-  case 1: Printftn("movsbq %s(%s), %s", ofs, ptr, reg); return;
-  }
-  internal_error();
 }
 
 // Round up `n` to the nearest multiple of `align`. For instance,
@@ -3924,38 +3805,6 @@ static int asm_ops_push(AsmParam *ap) {
   return idx;
 }
 
-static void asm_fill_ops(Node *node) {
-  asm_ops_cnt = 0;
-  memset(asm_ops, 0, sizeof(asm_ops));
-
-  for (AsmParam *ap = node->gasm.outputs; ap; ap = ap->next)
-    asm_ops_push(ap);
-
-  for (AsmParam *ap = node->gasm.inputs; ap; ap = ap->next)
-    asm_ops_push(ap);
-}
-
-static void asm_fill_ops2(Node *node) {
-  for (AsmParam *ap = node->gasm.outputs; ap; ap = ap->next)
-    if (*ap->constraint->str == '+')
-      asm_ops_push(ap);
-
-  for (AsmParam *ap = node->gasm.labels; ap; ap = ap->next)
-    ap->label_id = asm_ops_push(ap);
-}
-
-static bool is_gp_reg(Reg reg) {
-  return REG_X64_AX <= reg && reg <= REG_X64_SP;
-}
-
-static bool is_xmm_reg(Reg reg) {
-  return REG_X64_XMM0 <= reg && reg <= REG_X64_XMM15;
-}
-
-static bool is_x87_reg(Reg reg) {
-  return REG_X64_X87_ST0 <= reg && reg <= REG_X64_X87_ST7;
-}
-
 static char *gcc_reg_id(char *loc, Token *tok) {
   // FIXED_REGISTERS in gcc/config/i386/i386.h
   // LLVM call these GCCRegNames
@@ -4355,25 +4204,6 @@ static void asm_prepare_regs(Node *node, int tmp_cnt) {
   for (Reg r = REG_X64_R12; r <= REG_X64_BP; r++)
     if (asm_use.in[r] || asm_use.out[r])
       node->gasm.ctx->clobber_mask |= 1U << r;
-}
-
-void prepare_inline_asm(Node *node) {
-  memset(&asm_use, 0, sizeof(asm_use));
-
-  asm_fill_ops(node);
-
-  int x87_clobber = 0;
-  asm_prepare_clobbers(node->gasm.clobbers, &x87_clobber);
-
-  asm_constraint(node->gasm.inputs, true, x87_clobber);
-  asm_constraint(node->gasm.outputs, false, 0);
-
-  asm_assign_operands();
-
-  int out_tmp;
-  asm_prepare_args(node, &out_tmp);
-
-  asm_prepare_regs(node, out_tmp);
 }
 
 static char *reg_high_byte(Reg reg) {
@@ -5268,109 +5098,4 @@ void prepare_funcall(Node *node, Scope *scope) {
     var->next = scope->locals;
     scope->locals = var;
   }
-}
-
-static void peep_redunt_jmp(char *p) {
-  while ((p = strstr(p, "\n\tjmp "))) {
-    char *write_p = p;
-    char *name_p = p + 6;
-    p = strchr(name_p, '\n');
-    size_t write_len = p - write_p;
-    size_t name_len = p - name_p;
-
-    while (*p == '\n') {
-      char *name_p2 = p + 1;
-      size_t ins_len = strcspn(name_p2, ":;#\n");
-      if (name_p2[ins_len] != ':')
-        break;
-      p = name_p2 + ins_len + 1;
-      if (ins_len == name_len && !memcmp(name_p2, name_p, name_len)) {
-        memset(write_p, ' ', write_len);
-        break;
-      }
-    }
-  }
-}
-
-static void mark_live(Obj *var, bool is_ref) {
-  if (var->is_live)
-    return;
-
-  if (!var->is_definition) {
-    var->is_live = is_ref;
-
-    if (var->alias_name) {
-      Obj *alias = get_symbol_var(var->alias_name);
-      if (alias && alias->is_definition)
-        mark_live(alias, true);
-    }
-    return;
-  }
-  var->is_live = true;
-
-  if (var->ty->kind == TY_FUNC) {
-    for (int i = 0; i < var->output->ref_cnt; i++)
-      mark_live(var->output->refs[i], true);
-  } else {
-    for (Relocation *rel = var->rel; rel; rel = rel->next)
-      if (rel->var)
-        mark_live(rel->var, true);
-  }
-}
-
-int codegen(Obj *prog, FILE *out) {
-  output_file = out;
-
-  if (opt_g)
-    for (int i = 0; i < debug_files.len; i++)
-      Printftn(".file %d \"%s\"", i, debug_files.data[i]);
-
-  for (Obj *var = prog; var; var = var->next) {
-    if (var->is_definition && var->ty->kind == TY_FUNC && !var->is_static && !export_fn(var)) {
-      if (var->is_always_inline && opt_fake_always_inline) {
-        var->is_static = true;
-        char *p = ((FuncObj *)var->output)->buf;
-        if ((p = strstr(p, ".globl ")))
-          memcpy(p, ".local", 6);
-        continue;
-      }
-      var->is_definition = false;
-      var->output = NULL;
-      continue;
-    }
-    if (var->alias_name)
-      var->is_definition = false;
-  }
-
-  for (Obj *var = prog; var; var = var->next)
-    if (!var->is_static || var->is_used)
-      mark_live(var, false);
-
-  for (Obj *var = prog; var; var = var->next) {
-    if (!var->is_definition) {
-      if ((var->is_weak && var->is_live) ||
-          (var->visibility && var->is_live) ||
-          (var->alias_name && (var->is_live || !var->is_static || var->is_used)))
-        emit_symbol2(var, asm_name(var), var->visibility);
-      continue;
-    }
-    if (var->ty->kind == TY_ASM) {
-      Printfsn("%s", var->asm_name);
-      continue;
-    }
-    if (var->ty->kind != TY_ARRAY && var->ty->size < 0)
-      error("object \'%s\' has incomplete type", get_symbol(var));
-    if (!var->is_live)
-      continue;
-    if (var->ty->kind == TY_FUNC) {
-      FuncObj *fn = var->output;
-      peep_redunt_jmp(fn->buf);
-      fwrite(fn->buf, 1, fn->buflen, out);
-      continue;
-    }
-    emit_data(var);
-    continue;
-  }
-  Printstn(".section  .note.GNU-stack,\"\",@progbits");
-  return 0;
 }

@@ -3068,7 +3068,6 @@ static Node *stmt(ParseCtx *pctx, Token **rest, Token *tok, Token *label_list) {
     Node *node = asm_stmt(pctx, &tok, tok);
 
     enter_tmp_scope(pctx);
-    prepare_inline_asm(node);
     leave_scope(pctx);
 
     *rest = skip(tok, ";");
@@ -4956,7 +4955,7 @@ static Node *funcall(ParseCtx *pctx, Token **rest, Token *tok, Node *fn) {
   // to allocate a space for the return value.
   if (node->ty->kind == TY_STRUCT ||
       node->ty->kind == TY_UNION ||
-      (node->ty->kind == TY_BITINT && bitint_rtn_need_copy(node->ty->bit_cnt)))
+      (node->ty->kind == TY_BITINT && 0))
     node->call.rtn_buf = new_lvar(pctx, node->ty);
   return node;
 }
@@ -5271,9 +5270,6 @@ static Node *builtin_functions(ParseCtx *pctx, Token **rest, Token *tok) {
     VarAttr attr = {0};
     Type *ty = typename2(pctx, &tok, tok, &attr);
     *rest = skip(tok, ")");
-
-    if (va_arg_need_copy(ty))
-      node->m.var = new_lvar(pctx, ty);
 
     node->ty = pointer_to(ty);
     node = new_unary(pctx->slimcc_ctx, ND_DEREF, node, tok);
