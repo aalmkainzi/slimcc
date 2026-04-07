@@ -8,8 +8,6 @@ typedef enum {
   FILE_LDARG,
 } FileType;
 
-static void cc1(SlimccOptions *opts, char *input_file, char *output, bool is_asm_pp);
-
 static void version(void) {
   puts("slimcc version 0.0");
 }
@@ -400,22 +398,6 @@ static bool endswith(char *p, char *q) {
   return (len1 >= len2) && !strcmp(p + len1 - len2, q);
 }
 
-static void run_cc1(SlimccOptions *opts, char *input, char *output, bool no_fork, bool is_asm_pp) {
-  if (no_fork) {
-    cc1(opts, input, output, is_asm_pp);
-    return;
-  }
-
-  if (fork() == 0) {
-    cc1(opts, input, output, is_asm_pp);
-    _exit(0);
-  }
-
-  int status;
-  if (wait(&status) <= 0 || status != 0)
-    exit(1);
-}
-
 static void print_linemarker(SlimccOptions *opts, FILE *out, Token *tok) {
   char *name = opts->display_files.data[tok->display_file_no];
   if (!strcmp(name, "-"))
@@ -460,41 +442,17 @@ bool ignore_missing_dep(char *path, char *filename, Token *tok) {
   return false;
 }
 
-static char *skip_dot_slash(char *p) {
-  if (*p == '.' && p[1] == '/') {
-    for (p += 2; *p == '/';)
-      p++;
-  }
-  return p;
-}
-
-static void cc1(SlimccOptions *opts, char *input_file, char *output_file, bool is_asm_pp) {
-  build_macros(opts, &opts->macrodefs, is_asm_pp);
-
-  Token *tok = preprocess(input_file, &opts->opt_include, &opts->opt_imacros);
-
-  FILE *out = open_file(output_file);
-
-  tok = prepare_parse(tok);
-  
-  Obj *prog = parse(0, tok);
-
-  codegen(prog, out);
-
-  close_file(out);
-}
-
 struct SlimccReport;
 
-Obj *slimcc_get_ast(int argc, char *argv[], const char *file_name, const char *source_data, struct SlimccReport *report)
+Obj *slimcc_get_ast(int argc, char *argv[], const char *file_name, char *source_data, struct SlimccReport *report)
 {
-  SlimccOptions opts = { .opt_std = STD_C23 };
+  SlimccOptions opts = { .argv0 = argv[0], .opt_std = STD_C23 };
   SlimccCtx sctx = {0};
   ParseCtx pctx  = {
     .opts = &opts,
     .slimcc_ctx = &sctx,
-    .scope = &(Scope){0},
-    .globals = &(Obj){0} // this is probably what will get returned, so maybe it shouldn't be global
+    .scope = calloc(1, sizeof(Scope)),
+    .globals = calloc(1, sizeof(Obj)) // this is probably what will get returned, so maybe it shouldn't be global
   };
   PPCtx ppctx    = {
     .pctx = &pctx,
@@ -507,154 +465,17 @@ Obj *slimcc_get_ast(int argc, char *argv[], const char *file_name, const char *s
   platform_init(&ppctx);
   
   parse_args(&ppctx, &opts, argc, (char**) argv);
-}
-
-static char *find_file(char *pattern) {
-  char *path = NULL;
-  glob_t buf = {0};
-  glob(pattern, 0, NULL, &buf);
-  if (buf.gl_pathc > 0)
-    path = strdup(buf.gl_pathv[buf.gl_pathc - 1]);
-  globfree(&buf);
-  return path;
-}
-
-char *find_dir_w_file(char *pattern) {
-  static char *path;
-  if (!path) {
-    path = find_file(pattern);
-    if (!path)
-      return NULL;
-    path = dirname(path);
-  }
-  return path;
+  
+  build_macros(&ppctx, &opts, &opts.macrodefs, 0);
+  Token *tok = preprocess(&ppctx, source_data, &opts.opt_include, &opts.opt_imacros);
+  tok = prepare_parse(&ppctx, tok);
+  
+  Obj *prog = parse(&pctx, tok);
+  
+  return prog;
 }
 
 bool file_exists(char *path) {
   struct stat st;
   return !stat(path, &st);
-}
-
-static FileType get_file_type(char *filename) {
-  if (endswith(filename, ".c"))
-    return FILE_C;
-  return FILE_NONE;
-}
-
-int main(int argc, char **argv) {
-  argv0 = argv[0];
-  atexit(cleanup);
-  init_macros();
-  platform_init();
-
-  bool run_ld, no_fork;
-  parse_args(argc, argv, &run_ld, &no_fork);
-
-  StringArray ld_args = {0};
-  FileType opt_x = FILE_NONE;
-  int src_cnt = 0;
-
-  for (int i = 0; i < input_args.len; i++) {
-    if (!strcmp(input_args.data[i], "-x")) {
-      opt_x = parse_opt_x(input_args.data[++i]);
-      continue;
-    }
-    if (comma_arg(input_args.data[i], &ld_args, "-Wl,"))
-      continue;
-
-    char *input = input_args.data[i];
-
-    FileType type = opt_x ? opt_x : get_file_type(input);
-
-    if (type == FILE_LDARG) {
-      strarray_push(&ld_args, input);
-      run_ld = true;
-      continue;
-    }
-
-    char *output;
-    if (opt_o) {
-      if (opt_c || opt_S || opt_E)
-        if (src_cnt++)
-          error("cannot specify '-o' with '-c,' '-S' or '-E' with multiple files");
-      output = opt_o;
-    } else if (opt_S) {
-      output = replace_extn(input, ".s");
-    } else {
-      output = replace_extn(input, ".o");
-    }
-
-    // Handle .s
-    if (type == FILE_ASM) {
-      if (opt_S || opt_E || opt_M)
-        continue;
-
-      if (opt_c) {
-        run_assembler(&as_args, input, output);
-        continue;
-      }
-
-      char *tmp = create_tmpfile();
-      run_assembler(&as_args, input, tmp);
-      strarray_push(&ld_args, tmp);
-      run_ld = true;
-      continue;
-    }
-
-    // Handle .S
-    if (type == FILE_PP_ASM) {
-      if (opt_S || opt_E || opt_M) {
-        run_cc1(input, (opt_o ? opt_o : "-"), no_fork, true);
-        continue;
-      }
-      if (opt_c) {
-        char *tmp = create_tmpfile();
-        run_cc1(input, tmp, no_fork, true);
-        run_assembler(&as_args, tmp, output);
-        continue;
-      }
-      char *tmp1 = create_tmpfile();
-      char *tmp2 = create_tmpfile();
-      run_cc1(input, tmp1, no_fork, true);
-      run_assembler(&as_args, tmp1, tmp2);
-      strarray_push(&ld_args, tmp2);
-      run_ld = true;
-      continue;
-    }
-
-    assert(type == FILE_C);
-
-    if (opt_E || opt_M) {
-      run_cc1(input, (opt_o ? opt_o : "-"), no_fork, false);
-      continue;
-    }
-
-    if (opt_S) {
-      run_cc1(input, output, no_fork, false);
-      continue;
-    }
-
-    if (opt_c) {
-      char *tmp = create_tmpfile();
-      run_cc1(input, tmp, no_fork, false);
-      run_assembler(&as_args, tmp, output);
-      continue;
-    }
-
-    char *tmp1 = create_tmpfile();
-    char *tmp2 = create_tmpfile();
-    run_cc1(input, tmp1, no_fork, false);
-    run_assembler(&as_args, tmp1, tmp2);
-    strarray_push(&ld_args, tmp2);
-    run_ld = true;
-    continue;
-  }
-
-  if (run_ld) {
-    if (opt_c || opt_S || opt_E || opt_M)
-      fprintf(stderr, "linker input unused\n");
-    else
-      run_linker(&ld_paths, &ld_args, opt_o ? opt_o : "a.out");
-  }
-  return 0;
 }

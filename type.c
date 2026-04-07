@@ -32,35 +32,35 @@ Type *ty_wchar_t;
 Type *enum_ty[8];
 EnumType ety_of_int;
 
-void init_ty_lp64(void) {
-  define_macro("_LP64", "1");
-  define_macro("__LP64__", "1");
-  define_macro("__SIZEOF_POINTER__", "8");
+void init_ty_lp64(PPCtx *ppctx) {
+  define_macro(ppctx, "_LP64", "1");
+  define_macro(ppctx, "__LP64__", "1");
+  define_macro(ppctx, "__SIZEOF_POINTER__", "8");
 
-  define_macro("__SIZEOF_LONG_DOUBLE__", "16");
-  define_macro("__SIZEOF_DOUBLE__", "8");
-  define_macro("__SIZEOF_FLOAT__", "4");
-  define_macro("__SIZEOF_LONG_LONG__", "8");
-  define_macro("__SIZEOF_LONG__", "8");
-  define_macro("__SIZEOF_INT__", "4");
-  define_macro("__SIZEOF_SHORT__", "2");
+  define_macro(ppctx, "__SIZEOF_LONG_DOUBLE__", "16");
+  define_macro(ppctx, "__SIZEOF_DOUBLE__", "8");
+  define_macro(ppctx, "__SIZEOF_FLOAT__", "4");
+  define_macro(ppctx, "__SIZEOF_LONG_LONG__", "8");
+  define_macro(ppctx, "__SIZEOF_LONG__", "8");
+  define_macro(ppctx, "__SIZEOF_INT__", "4");
+  define_macro(ppctx, "__SIZEOF_SHORT__", "2");
 
-  define_macro("__LONG_LONG_MAX__", "0x7fffffffffffffffLL");
-  define_macro("__LONG_MAX__", "0x7fffffffffffffffL");
-  define_macro("__INT_MAX__", "0x7fffffff");
-  define_macro("__SHRT_MAX__", "0x7fff");
-  define_macro("__SCHAR_MAX__", "0x7f");
+  define_macro(ppctx, "__LONG_LONG_MAX__", "0x7fffffffffffffffLL");
+  define_macro(ppctx, "__LONG_MAX__", "0x7fffffffffffffffL");
+  define_macro(ppctx, "__INT_MAX__", "0x7fffffff");
+  define_macro(ppctx, "__SHRT_MAX__", "0x7fff");
+  define_macro(ppctx, "__SCHAR_MAX__", "0x7f");
 
-  define_macro("__SIZEOF_SIZE_T__", "8");
-  define_macro("__SIZEOF_PTRDIFF_T__", "8");
-  define_macro("__SIZEOF_WCHAR_T__", "4");
+  define_macro(ppctx, "__SIZEOF_SIZE_T__", "8");
+  define_macro(ppctx, "__SIZEOF_PTRDIFF_T__", "8");
+  define_macro(ppctx, "__SIZEOF_WCHAR_T__", "4");
 
-  define_macro("__SIZE_TYPE__", "long unsigned int");
-  define_macro("__PTRDIFF_TYPE__", "long int");
-  define_macro("__WCHAR_TYPE__", "int");
+  define_macro(ppctx, "__SIZE_TYPE__", "long unsigned int");
+  define_macro(ppctx, "__PTRDIFF_TYPE__", "long int");
+  define_macro(ppctx, "__WCHAR_TYPE__", "int");
 
-  define_macro("__INTMAX_TYPE__", "long int");
-  define_macro("__UINTMAX_TYPE__", "long unsigned int");
+  define_macro(ppctx, "__INTMAX_TYPE__", "long int");
+  define_macro(ppctx, "__UINTMAX_TYPE__", "long unsigned int");
 
   ty_size_t = ty_ulong;
   ty_ptrdiff_t = ty_long;

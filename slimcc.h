@@ -860,7 +860,7 @@ bool is_null_ptr_constant(Node *node);
 bool is_ptr(Type *ty);
 int next_pow_of_two(int val);
 int32_t bitfield_footprint(Member *mem);
-void init_ty_lp64(void);
+void init_ty_lp64(PPCtx*);
 Type *copy_type(Type *ty);
 Type *pointer_to(Type *base);
 Type *ptr_decay(Type *ty);
