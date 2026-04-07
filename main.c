@@ -446,8 +446,8 @@ struct SlimccReport;
 
 Obj *slimcc_get_ast(int argc, char *argv[], const char *file_name, char *source_data, struct SlimccReport *report)
 {
-  SlimccOptions opts = { .argv0 = argv[0], .opt_std = STD_C23 };
-  SlimccCtx sctx = {0};
+  SlimccCtx sctx = {};
+  SlimccOptions opts = { .sctx = &sctx, .argv0 = argv[0], .opt_std = STD_C23 };
   ParseCtx pctx  = {
     .opts = &opts,
     .slimcc_ctx = &sctx,

@@ -271,14 +271,14 @@ bool is_redundant_cast(Node *expr, Type *ty) {
   return false;
 }
 
-static void cast_if_not(SlimccCtx *sctx, Type *ty, Node **node) {
+static void cast_if_not(SlimccOptions *opts, Type *ty, Node **node) {
   if ((*node)->ty != ty)
-    *node = new_cast(*node, ty);
+    *node = new_cast(opts->sctx, *node, ty);
 }
 
-static bool int_to_ptr(SlimccCtx *sctx, Node **node) {
+static bool int_to_ptr(SlimccOptions *opts, Node **node) {
   if (is_integer((*node)->ty) || (*node)->ty->kind == TY_BITINT) {
-    *node = new_cast(*node, pointer_to(ty_void));
+    *node = new_cast(opts->sctx, *node, pointer_to(ty_void));
     return true;
   }
   return false;
@@ -315,7 +315,7 @@ static int64_t *get_arr_len(Type *ty) {
   return NULL;
 }
 
-static bool is_tag_compat(Type *t1, Type *t2) {
+static bool is_tag_compat(SlimccOptions *opts, Type *t1, Type *t2) {
   return opt_std >= STD_C23 && t1->tag && t2->tag && equal_tok(t1->tag, t2->tag);
 }
 
@@ -341,7 +341,7 @@ static bool is_qual_compat(Type *t1, Type *t2) {
   return t1->qual == t2->qual;
 }
 
-bool is_record_compat(Type *t1, Type *t2) {
+bool is_record_compat(SlimccOptions *opts, Type *t1, Type *t2) {
   if (t1->size < 0 ||
       t2->size < 0 ||
       t1->align != t2->align ||
@@ -383,11 +383,11 @@ bool is_record_compat(Type *t1, Type *t2) {
   return !mem1 == !mem2;
 }
 
-bool is_compatible2(Type *t1, Type *t2) {
+bool is_compatible2(SlimccOptions *opts, Type *t1, Type *t2) {
   return is_qual_compat(t1, t2) && is_compatible(t1, t2);
 }
 
-bool is_compatible(Type *t1, Type *t2) {
+bool is_compatible(SlimccOptions *opts, Type *t1, Type *t2) {
   if (t1->origin)
     t1 = t1->origin;
 
@@ -399,7 +399,7 @@ bool is_compatible(Type *t1, Type *t2) {
 
   if (t1->is_enum && t2->is_enum)
     return t1->is_int_enum == t2->is_int_enum &&
-           is_tag_compat(t1, t2) &&
+           is_tag_compat(opts, t1, t2) &&
            is_enum_compat(t1->enums, t2->enums);
 
   if (is_array(t1) && is_array(t2)) {
@@ -474,12 +474,12 @@ Type *ptr_decay(Type *ty) {
   return ty;
 }
 
-void ptr_convert(Node **node) {
+void ptr_convert(SlimccOptions *opts, Node **node) {
   add_type(*node);
   Type *orig = (*node)->ty;
   Type *ty = ptr_decay(orig);
   if (ty != orig)
-    *node = new_cast(*node, ty);
+    *node = new_cast(opts->sctx, *node, ty);
 }
 
 Type *func_type(Type *return_ty, Token *tok) {
@@ -523,7 +523,7 @@ Type *vla_of(Type *base, Node *len, int64_t arr_len) {
   return ty;
 }
 
-Node *assign_cast(Type *to_ty, Node *expr) {
+Node *assign_cast(SlimccOptions *opts, Type *to_ty, Node *expr) {
   add_type(expr);
 
   if (is_ptr(to_ty)) {
@@ -531,12 +531,12 @@ Node *assign_cast(Type *to_ty, Node *expr) {
     if (is_ptr(expr->ty))
       return expr;
     if (is_null_ptr_constant(expr))
-      return new_cast(expr, to_ty);
-  } else if (is_compatible(to_ty, expr->ty)) {
+      return new_cast(opts->sctx, expr, to_ty);
+  } else if (is_compatible(opts, to_ty, expr->ty)) {
     if (to_ty->kind != TY_VOID && to_ty->size >= 0)
       return expr;
   } else if (is_numeric(to_ty)) {
-    return new_cast(expr, to_ty);
+    return new_cast(opts->sctx, expr, to_ty);
   }
   error_tok(expr->tok, "invalid assignment");
 }
@@ -554,7 +554,7 @@ static int int_rank(Type *t) {
   internal_error();
 }
 
-bool is_null_ptr_constant(Node *node) {
+bool is_null_ptr_constant(SlimccOptions *opts, Node *node) {
   if (node->ty->kind == TY_NULLPTR)
     return true;
 
@@ -570,7 +570,7 @@ bool is_null_ptr_constant(Node *node) {
   return is_integer(node->ty) && is_const_expr(node, &val) && val == 0;
 }
 
-static void int_promotion(Node **node) {
+static void int_promotion(SlimccOptions *opts, Node **node) {
   Type *ty = (*node)->ty;
   int bit_width;
 
@@ -581,7 +581,7 @@ static void int_promotion(Node **node) {
       else if (bit_width <= (ty_int->size * 8))
         ty = ty_int;
     }
-    *node = new_cast(*node, ty);
+    *node = new_cast(opts->sctx, *node, ty);
     return;
   }
 
@@ -589,20 +589,20 @@ static void int_promotion(Node **node) {
     return;
 
   if (ty->size < ty_int->size) {
-    *node = new_cast(*node, ty_int);
+    *node = new_cast(opts->sctx, *node, ty_int);
     return;
   }
 
   if (ty->size == ty_int->size && int_rank(ty) < int_rank(ty_int)) {
     if (ty->is_unsigned)
-      *node = new_cast(*node, ty_uint);
+      *node = new_cast(opts->sctx, *node, ty_uint);
     else
-      *node = new_cast(*node, ty_int);
+      *node = new_cast(opts->sctx, *node, ty_int);
     return;
   }
 }
 
-static Type *cond_ptr_conv2(Type *ty1, Type *ty2, int msk, Node **cond, Obj **cond_var) {
+static Type *cond_ptr_conv2(SlimccOptions *opts, Type *ty1, Type *ty2, int msk, Node **cond, Obj **cond_var) {
   msk |= ty1->qual | ty2->qual;
 
   if (is_array(ty1)) {
@@ -805,7 +805,7 @@ void add_type(Node *node) {
     add_int_type(node->m.lhs);
     add_int_type(node->m.rhs);
     if (node->m.rhs->ty->kind == TY_BITINT)
-      node->m.rhs = new_cast(node->m.rhs, ty_ullong);
+      node->m.rhs = new_cast(opts->sctx, node->m.rhs, ty_ullong);
     int_promotion(&node->m.lhs);
     node->ty = node->m.lhs->ty;
     return;

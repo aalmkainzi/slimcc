@@ -844,6 +844,8 @@ struct Member {
   int bit_width;
 };
 
+struct SlimccOptions;
+
 bool is_pow_of_two(uint64_t val);
 bool is_integer(Type *ty);
 bool is_flonum(Type *ty);
@@ -852,10 +854,10 @@ bool is_array(Type *ty);
 bool is_decay_ty(Type *ty);
 bool is_bitfield(Node *node);
 bool is_redundant_cast(Node *expr, Type *ty);
-bool is_compatible(Type *t1, Type *t2);
-bool is_compatible2(Type *t1, Type *t2);
+bool is_compatible(struct SlimccOptions *,Type *t1, Type *t2);
+bool is_compatible2(struct SlimccOptions *opts, Type *t1, Type *t2);
 bool is_record_compat(Type *t1, Type *t2);
-bool is_null_ptr_constant(Node *node);
+bool is_null_ptr_constant(struct SlimccOptions*, Node *node);
 bool is_ptr(Type *ty);
 int next_pow_of_two(int val);
 int32_t bitfield_footprint(Member *mem);
@@ -863,7 +865,7 @@ void init_ty_lp64(PPCtx*);
 Type *copy_type(Type *ty);
 Type *pointer_to(Type *base);
 Type *ptr_decay(Type *ty);
-void ptr_convert(Node **node);
+void ptr_convert(struct SlimccOptions*, Node **node);
 Type *func_type(Type *return_ty, Token *tok);
 Type *get_func_ty(Node *node);
 Type *array_of(Type *base, int64_t size);
@@ -950,6 +952,8 @@ typedef struct SlimccOptions
   MacroChangeArr macrodefs;
   int incl_cnt;
   char *argv0;
+  
+  SlimccCtx *sctx;
 } SlimccOptions;
 
 bool file_exists(char *path);
