@@ -163,7 +163,7 @@ typedef struct {
   int len;
 } StringArray;
 
-void strarray_push(StringArray *arr, char *s);
+void strarray_push(StringArray *arr, const char *s);
 char *format(char *fmt, ...) FMTCHK(1, 2);
 
 //
@@ -317,7 +317,40 @@ void convert_ucn_ident(Token *tok);
 // preprocess.c
 //
 
-struct PPCtx;
+typedef struct MacroDef MacroDef;
+struct MacroDef {
+  MacroDef *next;
+  char *name;
+};
+
+typedef struct {
+  Token *tok;
+  bool is_else;
+  bool been_active;
+} CondIncl;
+
+typedef struct PPCtx
+{
+  struct Macro *locked_macros;
+  MacroDef *macro_head;
+  MacroDef *macro_defs;
+  HashMap macros;
+  HashMap pragma_once;
+  HashMap include_guards;
+  
+  char *base_file;
+  struct tm *cur_time;
+  
+  struct {
+    CondIncl *data;
+    int capacity;
+    int cnt;
+  } cond_incl;
+  
+  struct SlimccCtx *slimcc_ctx;
+  struct SlimccOptions *opts;
+  struct ParseCtx *pctx;
+} PPCtx;
 
 void init_macros(struct PPCtx*);
 void define_macro(struct PPCtx*, char *name, char *buf);
@@ -639,7 +672,17 @@ struct Scope {
 };
 
 typedef struct SlimccCtx SlimccCtx;
-typedef struct ParseCtx ParseCtx;
+
+typedef struct ParseCtx {
+  Obj *globals;
+  Scope *scope;
+  HashMap symbols;
+  struct FuncContext *fnctx;
+  bool *eval_recover;
+  
+  struct SlimccOptions *opts;
+  SlimccCtx *slimcc_ctx;
+} ParseCtx;
 
 Node *new_cast(SlimccCtx *sctx, Node *expr, Type *ty);
 int64_t const_expr(ParseCtx *pctx, Token **rest, Token *tok);
@@ -863,7 +906,7 @@ int display_width(char *p, int len);
 // platform.c
 //
 
-void platform_init(void);
+void platform_init(PPCtx *ppctx);
 void platform_stdinc_paths(StringArray *paths);
 void platform_search_dirs(StringArray *paths);
 void run_assembler(StringArray *as_args, char *input, char *output);

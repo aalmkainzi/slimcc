@@ -5,7 +5,6 @@ typedef struct {
   Token *expanded;
 } MacroArg;
 
-struct PPCtx;
 typedef Token *macro_handler_fn(struct PPCtx*,Token *);
 
 typedef struct Macro Macro;
@@ -27,41 +26,6 @@ typedef struct {
   MacroArg *args;
   bool omit_comma;
 } MacroContext;
-
-typedef struct MacroDef MacroDef;
-struct MacroDef {
-  MacroDef *next;
-  char *name;
-};
-
-typedef struct {
-  Token *tok;
-  bool is_else;
-  bool been_active;
-} CondIncl;
-
-typedef struct PPCtx
-{
-  Macro *locked_macros;
-  MacroDef *macro_head;
-  MacroDef *macro_defs;
-  HashMap macros;
-  HashMap pragma_once;
-  HashMap include_guards;
-  
-  char *base_file;
-  struct tm *cur_time;
-  
-  struct {
-    CondIncl *data;
-    int capacity;
-    int cnt;
-  } cond_incl;
-  
-  SlimccCtx *slimcc_ctx;
-  SlimccOptions *opts;
-  ParseCtx *pctx;
-} PPCtx;
 
 static Token *preprocess3(PPCtx*, Token *tok);
 static bool has_macro(PPCtx*, Token *tok);

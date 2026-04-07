@@ -175,17 +175,6 @@ struct FuncContext {
   Token *defr_ctx;
 };
 
-typedef struct ParseCtx {
-  Obj *globals;
-  Scope *scope;
-  HashMap symbols;
-  FuncContext *fnctx;
-  bool *eval_recover;
-  
-  SlimccOptions *opts;
-  SlimccCtx *slimcc_ctx;
-} ParseCtx;
-
 static bool is_type_kw(TokenKind kind);
 static bool is_typename(ParseCtx *pctx, Token *tok);
 static bool comma_list(Token **rest, Token **tok_rest, char *end, bool skip_comma);

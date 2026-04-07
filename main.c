@@ -124,27 +124,27 @@ static void macrochange_push(MacroChangeArr *arr, char *arg, bool is_def) {
   m->is_def = is_def;
 }
 
-static void build_macros(SlimccOptions *opts, MacroChangeArr *arr, bool is_asm_pp) {
+static void build_macros(struct PPCtx *ppctx, SlimccOptions *opts, MacroChangeArr *arr, bool is_asm_pp) {
   if (is_asm_pp) {
-    define_macro("__ASSEMBLER__", "1");
+    define_macro(ppctx, "__ASSEMBLER__", "1");
   } else {
     if (opts->is_iso_std)
-      define_macro("__STRICT_ANSI__", "1");
+      define_macro(ppctx, "__STRICT_ANSI__", "1");
 
     switch (opts->opt_std) {
-    case STD_C99: define_macro("__STDC_VERSION__", "199901L"); break;
-    case STD_C11: define_macro("__STDC_VERSION__", "201112L"); break;
-    case STD_C17: define_macro("__STDC_VERSION__", "201710L"); break;
-    case STD_C23: define_macro("__STDC_VERSION__", "202311L"); break;
+    case STD_C99: define_macro(ppctx, "__STDC_VERSION__", "199901L"); break;
+    case STD_C11: define_macro(ppctx, "__STDC_VERSION__", "201112L"); break;
+    case STD_C17: define_macro(ppctx, "__STDC_VERSION__", "201710L"); break;
+    case STD_C23: define_macro(ppctx, "__STDC_VERSION__", "202311L"); break;
     }
   }
 
   for (int i = 0; i < arr->len; i++) {
     MacroChange *m = &arr->data[i];
     if (m->is_def)
-      define_macro_cli(m->arg);
+      define_macro_cli(ppctx, m->arg);
     else
-      undef_macro(m->arg);
+      undef_macro(ppctx, m->arg);
   }
 }
 
@@ -206,7 +206,7 @@ static void build_incl_paths(SlimccOptions *opts, char *opt_B, bool opt_nostdinc
     strarray_push(&opts->include_paths, opts->sysincl_paths.data[i]);
 }
 
-static void parse_args(SlimccOptions *opts, int argc, char **argv, bool *run_ld, bool *no_fork) {
+static void parse_args(struct PPCtx *ppctx, SlimccOptions *opts, int argc, char **argv) {
   char *arg;
   int input_cnt = 0;
   bool has_wl = false;
@@ -307,7 +307,7 @@ static void parse_args(SlimccOptions *opts, int argc, char **argv, bool *run_ld,
       // -f only options
       if (b) {
         if (set_true(arg, "defer-ts", &opts->opt_fdefer_ts)) {
-          define_macro("__STDC_DEFER_TS25755__", "2");
+          define_macro(ppctx, "__STDC_DEFER_TS25755__", "2");
           continue;
         }
         if (set_bool(arg, false, "signed-char", &ty_pchar->is_unsigned) ||
@@ -375,9 +375,6 @@ static void parse_args(SlimccOptions *opts, int argc, char **argv, bool *run_ld,
 
   if (no_input)
     error("no input files");
-
-  *no_fork = (input_cnt == 1);
-  *run_ld = has_wl;
 }
 
 static FILE *open_file(char *path) {
@@ -487,21 +484,29 @@ static void cc1(SlimccOptions *opts, char *input_file, char *output_file, bool i
   close_file(out);
 }
 
-void run_assembler_gnustyle(StringArray *args, char *input, char *output) {
-  StringArray arr = {0};
+struct SlimccReport;
 
-  strarray_push(&arr, "as");
-  strarray_push(&arr, input);
-  strarray_push(&arr, "-o");
-  strarray_push(&arr, output);
-  strarray_push(&arr, "--fatal-warnings");
-
-  for (int i = 0; i < args->len; i++)
-    strarray_push(&arr, args->data[i]);
-
-  strarray_push(&arr, NULL);
-
-  run_subprocess(arr.data);
+Obj *slimcc_get_ast(int argc, char *argv[], const char *file_name, const char *source_data, struct SlimccReport *report)
+{
+  SlimccOptions opts = { .opt_std = STD_C23 };
+  SlimccCtx sctx = {0};
+  ParseCtx pctx  = {
+    .opts = &opts,
+    .slimcc_ctx = &sctx,
+    .scope = &(Scope){0},
+    .globals = &(Obj){0} // this is probably what will get returned, so maybe it shouldn't be global
+  };
+  PPCtx ppctx    = {
+    .pctx = &pctx,
+    .opts = &opts,
+    .slimcc_ctx = &sctx,
+    .macro_defs = &(MacroDef){0}
+  };
+  
+  init_macros(&ppctx);
+  platform_init(&ppctx);
+  
+  parse_args(&ppctx, &opts, argc, (char**) argv);
 }
 
 static char *find_file(char *pattern) {
