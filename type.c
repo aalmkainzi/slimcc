@@ -9,7 +9,7 @@ Type *ty_pchar = &(Type){.kind = TY_PCHAR, .size = 1, .align = 1};
 Type *ty_char = &(Type){.kind = TY_CHAR, .size = 1, .align = 1};
 Type *ty_short = &(Type){.kind = TY_SHORT, .size = 2, .align = 2};
 Type *ty_int = &(Type){.kind = TY_INT, .size = 4, .align = 4};
-Type *ty_long = &(Type){.kind = TY_LONG, .size = 8, .align = 8};
+Type *ty_long = &(Type){.kind = TY_LONG, .size = 8, .align = 8};;
 Type *ty_llong = &(Type){.kind = TY_LONGLONG, .size = 8, .align = 8};
 
 Type *ty_uchar = &(Type){.kind = TY_CHAR, .size = 1, .align = 1, .is_unsigned = true};
@@ -62,9 +62,16 @@ void init_ty_lp64(PPCtx *ppctx) {
   define_macro(ppctx, "__INTMAX_TYPE__", "long int");
   define_macro(ppctx, "__UINTMAX_TYPE__", "long unsigned int");
 
-  ty_size_t = ty_ulong;
-  ty_ptrdiff_t = ty_long;
+#if defined (_WIN32)
+  ty_long->size = ty_long->align = 4;
+  ty_ulong->size = ty_ulong->align = 4;
+  ty_wchar_t = ty_ushort;
+#else
   ty_wchar_t = ty_int;
+#endif
+
+  ty_size_t = ty_ullong;
+  ty_ptrdiff_t = ty_llong;
 
   ty_char16_t = ty_ushort;
   ty_char32_t = ty_uint;
@@ -75,8 +82,8 @@ void init_ty_lp64(PPCtx *ppctx) {
   enum_ty[ETY_U16] = ty_ushort;
   enum_ty[ETY_I32] = ty_int;
   enum_ty[ETY_U32] = ty_uint;
-  enum_ty[ETY_I64] = ty_long;
-  enum_ty[ETY_U64] = ty_ulong;
+  enum_ty[ETY_I64] = ty_llong;
+  enum_ty[ETY_U64] = ty_ullong;
 
   ety_of_int = ETY_I32;
 }
@@ -264,12 +271,12 @@ bool is_redundant_cast(Node *expr, Type *ty) {
   return false;
 }
 
-static void cast_if_not(Type *ty, Node **node) {
+static void cast_if_not(SlimccCtx *sctx, Type *ty, Node **node) {
   if ((*node)->ty != ty)
     *node = new_cast(*node, ty);
 }
 
-static bool int_to_ptr(Node **node) {
+static bool int_to_ptr(SlimccCtx *sctx, Node **node) {
   if (is_integer((*node)->ty) || (*node)->ty->kind == TY_BITINT) {
     *node = new_cast(*node, pointer_to(ty_void));
     return true;

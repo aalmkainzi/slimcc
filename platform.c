@@ -8,12 +8,7 @@ void platform_init(PPCtx *ppctx) {
   define_macro(ppctx, "__linux__", "1");
   define_macro(ppctx, "__gnu_linux__", "1");
 
-  init_ty_lp64();
-  // Follow build compiler's PIE on/off status
-#ifdef __pie__
-  set_fpie("2");
-  opt_pie = true;
-#endif
+  init_ty_lp64(ppctx);
 }
 
 void platform_stdinc_paths(StringArray *paths) {

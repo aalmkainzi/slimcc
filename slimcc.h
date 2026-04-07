@@ -4,7 +4,6 @@
 #define _XOPEN_SOURCE 700
 #include <assert.h>
 #include <errno.h>
-#include <glob.h>
 #include <inttypes.h>
 #include <libgen.h>
 #include <signal.h>
