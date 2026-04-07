@@ -316,7 +316,7 @@ static int64_t *get_arr_len(Type *ty) {
 }
 
 static bool is_tag_compat(SlimccOptions *opts, Type *t1, Type *t2) {
-  return opt_std >= STD_C23 && t1->tag && t2->tag && equal_tok(t1->tag, t2->tag);
+  return opts->opt_std >= STD_C23 && t1->tag && t2->tag && equal_tok(t1->tag, t2->tag);
 }
 
 static bool is_arr_qual_compat(Type *t1, Type *t2) {
@@ -371,10 +371,10 @@ bool is_record_compat(SlimccOptions *opts, Type *t1, Type *t2) {
           !mem2->name != !t2->tag ||
           (t1->tag && !equal_tok(t1->tag, t2->tag)))
         return false;
-      if (!is_qual_compat(t1, t2) || !is_record_compat(t1, t2))
+      if (!is_qual_compat(t1, t2) || !is_record_compat(opts, t1, t2))
         return false;
     } else {
-      if (!is_compatible2(t1, t2))
+      if (!is_compatible2(opts, t1, t2))
         return false;
     }
     mem1 = mem1->next;
@@ -384,7 +384,7 @@ bool is_record_compat(SlimccOptions *opts, Type *t1, Type *t2) {
 }
 
 bool is_compatible2(SlimccOptions *opts, Type *t1, Type *t2) {
-  return is_qual_compat(t1, t2) && is_compatible(t1, t2);
+  return is_qual_compat(t1, t2) && is_compatible(opts, t1, t2);
 }
 
 bool is_compatible(SlimccOptions *opts, Type *t1, Type *t2) {
@@ -407,7 +407,7 @@ bool is_compatible(SlimccOptions *opts, Type *t1, Type *t2) {
     int64_t *len2 = get_arr_len(t2);
 
     if (!len1 || !len2 || *len1 == *len2)
-      return is_compatible(t1->base, t2->base);
+      return is_compatible(opts, t1->base, t2->base);
     return false;
   }
 
@@ -426,9 +426,9 @@ bool is_compatible(SlimccOptions *opts, Type *t1, Type *t2) {
   case TY_FLOAT:
   case TY_DOUBLE:
   case TY_LDOUBLE: return true;
-  case TY_PTR:     return is_compatible2(t1->base, t2->base);
+  case TY_PTR:     return is_compatible2(opts, t1->base, t2->base);
   case TY_FUNC: {
-    if (!is_compatible(t1->return_ty, t2->return_ty))
+    if (!is_compatible(opts, t1->return_ty, t2->return_ty))
       return false;
     if (t1->is_oldstyle || t2->is_oldstyle)
       return true;
@@ -437,12 +437,12 @@ bool is_compatible(SlimccOptions *opts, Type *t1, Type *t2) {
     Obj *p1 = t1->param_list;
     Obj *p2 = t2->param_list;
     for (; p1 && p2; p1 = p1->param_next, p2 = p2->param_next)
-      if (!is_compatible(p1->ty, p2->ty))
+      if (!is_compatible(opts, p1->ty, p2->ty))
         return false;
     return p1 == NULL && p2 == NULL;
   }
   case TY_STRUCT:
-  case TY_UNION:  return is_tag_compat(t1, t2) && is_record_compat(t1, t2);
+  case TY_UNION:  return is_tag_compat(opts, t1, t2) && is_record_compat(opts, t1, t2);
   }
   return false;
 }
@@ -475,7 +475,7 @@ Type *ptr_decay(Type *ty) {
 }
 
 void ptr_convert(SlimccOptions *opts, Node **node) {
-  add_type(*node);
+  add_type(opts, *node);
   Type *orig = (*node)->ty;
   Type *ty = ptr_decay(orig);
   if (ty != orig)
@@ -493,8 +493,8 @@ Type *func_type(Type *return_ty, Token *tok) {
   return ty;
 }
 
-Type *get_func_ty(Node *node) {
-  add_type(node);
+Type *get_func_ty(SlimccOptions *opts, Node *node) {
+  add_type(opts, node);
   Type *ty = node->ty;
   if (ty->kind == TY_FUNC)
     return ty;
@@ -510,12 +510,12 @@ Type *array_of(Type *base, int64_t len) {
   return ty;
 }
 
-Type *vla_of(Type *base, Node *len, int64_t arr_len) {
+Type *vla_of(SlimccOptions *opts, Type *base, Node *len, int64_t arr_len) {
   Type *ty = new_type(TY_VLA, 8, 8);
   ty->base = base;
   if (len) {
-    add_type(len);
-    cast_if_not(ty_size_t, &len);
+    add_type(opts, len);
+    cast_if_not(opts, ty_size_t, &len);
     ty->vla_len_expr = len;
   } else {
     ty->array_len = arr_len;
@@ -524,13 +524,13 @@ Type *vla_of(Type *base, Node *len, int64_t arr_len) {
 }
 
 Node *assign_cast(SlimccOptions *opts, Type *to_ty, Node *expr) {
-  add_type(expr);
+  add_type(opts, expr);
 
   if (is_ptr(to_ty)) {
-    ptr_convert(&expr);
+    ptr_convert(opts, &expr);
     if (is_ptr(expr->ty))
       return expr;
-    if (is_null_ptr_constant(expr))
+    if (is_null_ptr_constant(opts, expr))
       return new_cast(opts->sctx, expr, to_ty);
   } else if (is_compatible(opts, to_ty, expr->ty)) {
     if (to_ty->kind != TY_VOID && to_ty->size >= 0)
@@ -560,14 +560,14 @@ bool is_null_ptr_constant(SlimccOptions *opts, Node *node) {
 
   if (node->kind == ND_CAST &&
       node->ty->kind == TY_PTR &&
-      is_compatible2(node->ty->base, ty_void))
+      is_compatible2(opts, node->ty->base, ty_void))
     node = node->m.lhs;
 
   if (node->ty->kind == TY_BITINT)
-    return is_const_zero_bitint(node);
+    return is_const_zero_bitint(opts->pctx, node);
 
   int64_t val;
-  return is_integer(node->ty) && is_const_expr(node, &val) && val == 0;
+  return is_integer(node->ty) && is_const_expr(opts->pctx, node, &val) && val == 0;
 }
 
 static void int_promotion(SlimccOptions *opts, Node **node) {
@@ -606,22 +606,22 @@ static Type *cond_ptr_conv2(SlimccOptions *opts, Type *ty1, Type *ty2, int msk, 
   msk |= ty1->qual | ty2->qual;
 
   if (is_array(ty1)) {
-    Type *base = cond_ptr_conv2(ty1->base, ty2->base, msk, cond, cond_var);
+    Type *base = cond_ptr_conv2(opts, ty1->base, ty2->base, msk, cond, cond_var);
     int64_t *len;
     if ((len = get_arr_len(ty1)) || (len = get_arr_len(ty2))) {
       if (base->kind == TY_VLA)
-        return vla_of(base, NULL, *len);
+        return vla_of(opts, base, NULL, *len);
       return array_of(base, *len);
     }
     if (ty1->vla_len_expr || ty2->vla_len_expr)
-      return vla_cond_result_len(ty1, ty2, base, cond, cond_var);
+      return vla_cond_result_len(opts->pctx, ty1, ty2, base, cond, cond_var);
 
     return array_of(base, -1);
   }
   return qual_type(msk, ty1, NULL);
 }
 
-static Type *cond_ptr_conv(Node **lhs, Node **rhs, Node **cond) {
+static Type *cond_ptr_conv(SlimccOptions *opts, Node **lhs, Node **rhs, Node **cond) {
   Type *ty1 = (*lhs)->ty;
   Type *ty2 = (*rhs)->ty;
 
@@ -629,35 +629,35 @@ static Type *cond_ptr_conv(Node **lhs, Node **rhs, Node **cond) {
     if (ty1->kind == TY_NULLPTR && ty2->kind == TY_NULLPTR)
       return ty_nullptr;
 
-    if (ty1->kind == TY_PTR && is_null_ptr_constant(*rhs))
+    if (ty1->kind == TY_PTR && is_null_ptr_constant(opts, *rhs))
       return ty1;
-    if (ty2->kind == TY_PTR && is_null_ptr_constant(*lhs))
+    if (ty2->kind == TY_PTR && is_null_ptr_constant(opts, *lhs))
       return ty2;
 
     if (ty1->base->kind == TY_VOID || ty2->base->kind == TY_VOID)
       return pointer_to(qual_type(ty1->base->qual | ty2->base->qual, ty_void, NULL));
 
-    if (is_compatible(ty1->base, ty2->base))
-      return pointer_to(cond_ptr_conv2(ty1->base, ty2->base, 0, cond, &(Obj *){0}));
+    if (is_compatible(opts, ty1->base, ty2->base))
+      return pointer_to(cond_ptr_conv2(opts, ty1->base, ty2->base, 0, cond, &(Obj *){0}));
 
     return pointer_to(ty_void);
   }
 
-  if (ty1->kind == TY_PTR && int_to_ptr(rhs))
+  if (ty1->kind == TY_PTR && int_to_ptr(opts, rhs))
     return ty1;
-  if (ty2->kind == TY_PTR && int_to_ptr(lhs))
+  if (ty2->kind == TY_PTR && int_to_ptr(opts, lhs))
     return ty2;
 
   error_tok((is_ptr(ty1) ? *rhs : *lhs)->tok, "invalid operand");
 }
 
-static void add_int_type(Node *node) {
-  add_type(node);
+static void add_int_type(SlimccOptions *opts, Node *node) {
+  add_type(opts, node);
   if (!(is_integer(node->ty) || node->ty->kind == TY_BITINT))
     error_tok(node->tok, "invalid operand");
 }
 
-static Type *get_common_type(Node **lhs, Node **rhs) {
+static Type *get_common_type(SlimccOptions *opts, Node **lhs, Node **rhs) {
   Type *ty1 = (*lhs)->ty;
   Type *ty2 = (*rhs)->ty;
 
@@ -673,8 +673,8 @@ static Type *get_common_type(Node **lhs, Node **rhs) {
   if (ty1->kind == TY_FLOAT || ty2->kind == TY_FLOAT)
     return ty_float;
 
-  int_promotion(lhs);
-  int_promotion(rhs);
+  int_promotion(opts, lhs);
+  int_promotion(opts, rhs);
   ty1 = (*lhs)->ty;
   ty2 = (*rhs)->ty;
 
@@ -701,20 +701,20 @@ static Type *get_common_type(Node **lhs, Node **rhs) {
   internal_error();
 }
 
-static Type *usual_arith_conv(Node **lhs, Node **rhs) {
-  Type *ty = get_common_type(lhs, rhs);
-  cast_if_not(ty, lhs);
-  cast_if_not(ty, rhs);
+static Type *usual_arith_conv(SlimccOptions *opts, Node **lhs, Node **rhs) {
+  Type *ty = get_common_type(opts, lhs, rhs);
+  cast_if_not(opts, ty, lhs);
+  cast_if_not(opts, ty, rhs);
   return ty;
 }
 
-void add_type_chk_const(Node *node) {
-  add_type(node);
+void add_type_chk_const(SlimccOptions *opts, Node *node) {
+  add_type(opts, node);
   if (node->ty->qual & Q_CONST)
     error_tok(node->tok, "operand is const");
 }
 
-void add_type(Node *node) {
+void add_type(SlimccOptions *opts, Node *node) {
   if (!node || node->ty)
     return;
 
@@ -725,43 +725,43 @@ void add_type(Node *node) {
   }
   case ND_ADD:
   case ND_SUB: {
-    add_type(node->m.lhs);
-    add_type(node->m.rhs);
+    add_type(opts, node->m.lhs);
+    add_type(opts, node->m.rhs);
     Node *ptr = node->m.lhs->ty->base ? node->m.lhs
                                       : (node->m.rhs->ty->base ? node->m.rhs : NULL);
     if (ptr)
       node->ty = ptr->ty;
     else
-      node->ty = usual_arith_conv(&node->m.lhs, &node->m.rhs);
+      node->ty = usual_arith_conv(opts, &node->m.lhs, &node->m.rhs);
     return;
   }
   case ND_MUL:
   case ND_DIV:
-    add_type(node->m.lhs);
-    add_type(node->m.rhs);
-    node->ty = usual_arith_conv(&node->m.lhs, &node->m.rhs);
+    add_type(opts, node->m.lhs);
+    add_type(opts, node->m.rhs);
+    node->ty = usual_arith_conv(opts, &node->m.lhs, &node->m.rhs);
     return;
   case ND_MOD:
   case ND_BITAND:
   case ND_BITOR:
   case ND_BITXOR:
-    add_int_type(node->m.lhs);
-    add_int_type(node->m.rhs);
-    node->ty = usual_arith_conv(&node->m.lhs, &node->m.rhs);
+    add_int_type(opts, node->m.lhs);
+    add_int_type(opts, node->m.rhs);
+    node->ty = usual_arith_conv(opts, &node->m.lhs, &node->m.rhs);
     return;
   case ND_POS:
   case ND_NEG:
-    add_type(node->m.lhs);
+    add_type(opts, node->m.lhs);
     if (!is_numeric(node->m.lhs->ty))
       error_tok(node->m.lhs->tok, "invalid operand");
     if (is_integer(node->m.lhs->ty))
-      int_promotion(&node->m.lhs);
+      int_promotion(opts, &node->m.lhs);
     node->ty = node->m.lhs->ty;
     return;
   case ND_ASSIGN:
-    add_type(node->m.lhs);
-    add_type(node->m.rhs);
-    node->m.rhs = assign_cast(node->m.lhs->ty, node->m.rhs);
+    add_type(opts, node->m.lhs);
+    add_type(opts, node->m.rhs);
+    node->m.rhs = assign_cast(opts, node->m.lhs->ty, node->m.rhs);
     node->ty = node->m.lhs->ty;
     return;
   case ND_EQ:
@@ -771,13 +771,13 @@ void add_type(Node *node) {
   case ND_GT:
   case ND_GE:
     node->ty = ty_int;
-    ptr_convert(&node->m.lhs);
-    ptr_convert(&node->m.rhs);
+    ptr_convert(opts, &node->m.lhs);
+    ptr_convert(opts, &node->m.rhs);
     if ((is_ptr(node->m.lhs->ty) && is_ptr(node->m.rhs->ty)) ||
-        (is_ptr(node->m.lhs->ty) && int_to_ptr(&node->m.rhs)) ||
-        (is_ptr(node->m.rhs->ty) && int_to_ptr(&node->m.lhs)))
+        (is_ptr(node->m.lhs->ty) && int_to_ptr(opts, &node->m.rhs)) ||
+        (is_ptr(node->m.rhs->ty) && int_to_ptr(opts, &node->m.lhs)))
       return;
-    usual_arith_conv(&node->m.lhs, &node->m.rhs);
+    usual_arith_conv(opts, &node->m.lhs, &node->m.rhs);
     return;
   case ND_FUNCALL:
   case ND_STMT_EXPR: {
@@ -785,28 +785,28 @@ void add_type(Node *node) {
     return;
   }
   case ND_NOT:
-    add_type(node->m.lhs);
+    add_type(opts, node->m.lhs);
     node->ty = ty_int;
     return;
   case ND_LOGOR:
   case ND_LOGAND:
-    add_type(node->m.lhs);
-    add_type(node->m.rhs);
+    add_type(opts, node->m.lhs);
+    add_type(opts, node->m.rhs);
     node->ty = ty_int;
     return;
   case ND_BITNOT:
-    add_int_type(node->m.lhs);
-    int_promotion(&node->m.lhs);
+    add_int_type(opts, node->m.lhs);
+    int_promotion(opts, &node->m.lhs);
     node->ty = node->m.lhs->ty;
     return;
   case ND_SHL:
   case ND_SHR:
   case ND_SAR:
-    add_int_type(node->m.lhs);
-    add_int_type(node->m.rhs);
+    add_int_type(opts, node->m.lhs);
+    add_int_type(opts, node->m.rhs);
     if (node->m.rhs->ty->kind == TY_BITINT)
       node->m.rhs = new_cast(opts->sctx, node->m.rhs, ty_ullong);
-    int_promotion(&node->m.lhs);
+    int_promotion(opts, &node->m.lhs);
     node->ty = node->m.lhs->ty;
     return;
   case ND_VAR: {
@@ -814,85 +814,85 @@ void add_type(Node *node) {
     return;
   }
   case ND_COND: {
-    add_type(node->ctrl.cond);
+    add_type(opts, node->ctrl.cond);
     Node **lhs = &node->ctrl.then;
     Node **rhs = &node->ctrl.els;
-    ptr_convert(lhs);
-    ptr_convert(rhs);
+    ptr_convert(opts, lhs);
+    ptr_convert(opts, rhs);
 
     if ((*lhs)->ty->kind == TY_VOID || (*rhs)->ty->kind == TY_VOID)
       node->ty = ty_void;
     else if (is_ptr((*lhs)->ty) || is_ptr((*rhs)->ty))
-      node->ty = cond_ptr_conv(lhs, rhs, &node->ctrl.cond);
+      node->ty = cond_ptr_conv(opts, lhs, rhs, &node->ctrl.cond);
     else if (!is_numeric((*lhs)->ty) &&
              (*lhs)->ty->size >= 0 &&
-             is_compatible((*lhs)->ty, (*rhs)->ty))
+             is_compatible(opts, (*lhs)->ty, (*rhs)->ty))
       node->ty = (*lhs)->ty;
     else
-      node->ty = usual_arith_conv(lhs, rhs);
+      node->ty = usual_arith_conv(opts, lhs, rhs);
     return;
   }
   case ND_CHAIN:
-    add_type(node->m.lhs);
-    add_type(node->m.rhs);
+    add_type(opts, node->m.lhs);
+    add_type(opts, node->m.rhs);
     node->ty = node->m.rhs->ty;
     return;
   case ND_COMMA:
-    add_type(node->m.lhs);
-    add_type(node->m.rhs);
+    add_type(opts, node->m.lhs);
+    add_type(opts, node->m.rhs);
     node->ty = ptr_decay(node->m.rhs->ty);
     return;
   case ND_MEMBER:
-    add_type(node->m.lhs);
+    add_type(opts, node->m.lhs);
     node->ty = node->m.member->ty;
     return;
   case ND_ADDR:
-    add_type(node->m.lhs);
+    add_type(opts, node->m.lhs);
     node->ty = pointer_to(node->m.lhs->ty);
     return;
   case ND_DEREF:
-    add_type(node->m.lhs);
+    add_type(opts, node->m.lhs);
     if (!node->m.lhs->ty->base)
       error_tok(node->tok, "invalid pointer dereference");
 
     node->ty = node->m.lhs->ty->base;
     return;
   case ND_FOR:
-    add_type(node->ctrl.cond);
-    add_type(node->ctrl.then);
-    add_type(node->ctrl.for_init);
-    add_type(node->ctrl.for_inc);
+    add_type(opts, node->ctrl.cond);
+    add_type(opts, node->ctrl.then);
+    add_type(opts, node->ctrl.for_init);
+    add_type(opts, node->ctrl.for_inc);
     return;
   case ND_IF:
-    add_type(node->ctrl.cond);
-    add_type(node->ctrl.then);
-    add_type(node->ctrl.els);
+    add_type(opts, node->ctrl.cond);
+    add_type(opts, node->ctrl.then);
+    add_type(opts, node->ctrl.els);
     return;
   case ND_DO:
   case ND_SWITCH:
-    add_type(node->ctrl.cond);
-    add_type(node->ctrl.then);
+    add_type(opts, node->ctrl.cond);
+    add_type(opts, node->ctrl.then);
     return;
   case ND_EXPR_STMT: {
-    add_type(node->m.lhs);
+    add_type(opts, node->m.lhs);
     return;
   }
   case ND_BLOCK:
     for (Node *n = node->blk.body; n; n = n->next)
-      add_type(n);
+      add_type(opts, n);
     break;
   case ND_ALLOCA:
   case ND_ALLOCA_ZINIT: {
-    add_type(node->m.lhs);
+    add_type(opts, node->m.lhs);
   }
   case ND_LABEL_VAL: {
     node->ty = pointer_to(ty_void);
     return;
   }
   case ND_CAS:
-    add_type(node->cas.addr);
-    add_type(node->cas.old_val);
-    add_type(node->cas.new_val);
+    add_type(opts, node->cas.addr);
+    add_type(opts, node->cas.old_val);
+    add_type(opts, node->cas.new_val);
     node->ty = ty_bool;
 
     if (node->cas.addr->ty->kind != TY_PTR)
@@ -901,25 +901,25 @@ void add_type(Node *node) {
       error_tok(node->cas.old_val->tok, "pointer expected");
     return;
   case ND_EXCH:
-    add_type(node->m.lhs);
-    add_type(node->m.rhs);
+    add_type(opts, node->m.lhs);
+    add_type(opts, node->m.rhs);
     if (node->m.lhs->ty->kind != TY_PTR)
       error_tok(node->m.lhs->tok, "pointer expected");
     node->ty = node->m.lhs->ty->base;
     return;
   case ND_VA_START:
-    add_type(node->m.lhs);
+    add_type(opts, node->m.lhs);
     node->ty = ty_void;
     return;
   case ND_VA_COPY:
-    add_type(node->m.lhs);
-    add_type(node->m.rhs);
+    add_type(opts, node->m.lhs);
+    add_type(opts, node->m.rhs);
     node->ty = ty_void;
     return;
   case ND_CKD_ARITH:
-    add_type(node->m.lhs);
-    add_type(node->m.rhs);
-    add_type(node->m.target);
+    add_type(opts, node->m.lhs);
+    add_type(opts, node->m.rhs);
+    add_type(opts, node->m.target);
     node->ty = ty_bool;
     return;
   case ND_NULL_EXPR:

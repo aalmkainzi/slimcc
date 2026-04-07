@@ -844,7 +844,7 @@ struct Member {
   int bit_width;
 };
 
-struct SlimccOptions;
+typedef struct SlimccOptions SlimccOptions;
 
 bool is_pow_of_two(uint64_t val);
 bool is_integer(Type *ty);
@@ -854,10 +854,10 @@ bool is_array(Type *ty);
 bool is_decay_ty(Type *ty);
 bool is_bitfield(Node *node);
 bool is_redundant_cast(Node *expr, Type *ty);
-bool is_compatible(struct SlimccOptions *,Type *t1, Type *t2);
-bool is_compatible2(struct SlimccOptions *opts, Type *t1, Type *t2);
-bool is_record_compat(Type *t1, Type *t2);
-bool is_null_ptr_constant(struct SlimccOptions*, Node *node);
+bool is_compatible(SlimccOptions *,Type *t1, Type *t2);
+bool is_compatible2(SlimccOptions *opts, Type *t1, Type *t2);
+bool is_record_compat(SlimccOptions *opts, Type *t1, Type *t2);
+bool is_null_ptr_constant(SlimccOptions*, Node *node);
 bool is_ptr(Type *ty);
 int next_pow_of_two(int val);
 int32_t bitfield_footprint(Member *mem);
@@ -867,19 +867,19 @@ Type *pointer_to(Type *base);
 Type *ptr_decay(Type *ty);
 void ptr_convert(struct SlimccOptions*, Node **node);
 Type *func_type(Type *return_ty, Token *tok);
-Type *get_func_ty(Node *node);
+Type *get_func_ty(SlimccOptions *opts, Node *node);
 Type *array_of(Type *base, int64_t size);
-Type *vla_of(Type *base, Node *expr, int64_t arr_len);
+Type *vla_of(SlimccOptions *opts, Type *base, Node *expr, int64_t arr_len);
 Type *new_type(TypeKind kind, int64_t size, int align);
 Type *new_bitint(int64_t width, Token *tok);
-void add_type_chk_const(Node *node);
-void add_type(Node *node);
+void add_type_chk_const(SlimccOptions *opts, Node *node);
+void add_type(SlimccOptions *opts, Node *node);
 Type *unqual(Type *ty);
 Type *new_derived_type(Type *newty, QualMask qual, Type *ty, Token *tok);
 Type *qual_type(QualMask msk, Type *ty, Token *tok);
 void cvqual_type(Type **ty_p, Type *ty2);
 bool mem_iter(Member **mem);
-Node *assign_cast(Type *to, Node *expr);
+Node *assign_cast(SlimccOptions *opts, Type *to, Node *expr);
 
 //
 // codegen.c
@@ -954,6 +954,7 @@ typedef struct SlimccOptions
   char *argv0;
   
   SlimccCtx *sctx;
+  ParseCtx *pctx;
 } SlimccOptions;
 
 bool file_exists(char *path);
