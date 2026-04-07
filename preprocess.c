@@ -5,7 +5,8 @@ typedef struct {
   Token *expanded;
 } MacroArg;
 
-typedef Token *macro_handler_fn(Token *);
+struct PPCtx;
+typedef Token *macro_handler_fn(struct PPCtx*,Token *);
 
 typedef struct Macro Macro;
 struct Macro {
@@ -112,21 +113,21 @@ static Token *get_line(Token **cur, Token *tok) {
 #else
 # define to_freelist(first, last)      \
    do {                                \
-     last->next = ppctx->tok_freelist; \
-     ppctx->tok_freelist = first;      \
+     last->next = ppctx->slimcc_ctx->tok_freelist; \
+     ppctx->slimcc_ctx->tok_freelist = first;      \
    } while (0)
 #endif
 
 static Token *copy_token(PPCtx *ppctx, Token *tok) {
   Token *t;
-  if ((t = ppctx->tok_freelist))
-    ppctx->tok_freelist = t->next;
+  if ((t = ppctx->slimcc_ctx->tok_freelist))
+    ppctx->slimcc_ctx->tok_freelist = t->next;
   else
     t = malloc(sizeof(Token));
 
   *t = *tok;
-  t->alloc_next = ppctx->ppctx->slimcc_ctx->last_alloc_tok;
-  ppctx->ppctx->slimcc_ctx->last_alloc_tok = t;
+  t->alloc_next = ppctx->slimcc_ctx->last_alloc_tok;
+  ppctx->slimcc_ctx->last_alloc_tok = t;
   return t;
 }
 
@@ -957,7 +958,7 @@ static bool expand_macro(PPCtx *ppctx, Token **rest, Token *tok, bool is_root) {
     if (m->handler == &pragma_macro && !is_root)
       return false;
 
-    *rest = m->handler(tok);
+    *rest = m->handler(ppctx, tok);
     if (m->align)
       align_token(ppctx, *rest, tok);
     return true;
@@ -1119,20 +1120,20 @@ static char *read_include_filename(PPCtx *ppctx, Token *tok, char **dir) {
 }
 
 static Token *include_file(PPCtx *ppctx, Token *tok, char *path, Token *filename_tok, InclIdx idx) {
-  if (hashmap_get(&pragma_once, realpath(path, NULL)))
+  if (hashmap_get(&ppctx->pragma_once, realpath(path, NULL)))
     return tok;
 
-  char *guard_name = hashmap_get(&include_guards, path);
+  char *guard_name = hashmap_get(&ppctx->include_guards, path);
   if (guard_name && hashmap_get(&ppctx->macros, guard_name))
     return tok;
 
   Token *end = NULL;
   Token *start = tokenize_file(path, filename_tok, &end);
   start->file->incl_idx = idx;
-  start->file->is_syshdr = filename_tok->file->is_syshdr || in_sysincl_path(idx);
+  start->file->is_syshdr = filename_tok->file->is_syshdr || in_sysincl_path(ppctx->opts, idx);
   add_dep_file(path, start->file->is_syshdr);
 
-  Token *fmark = opt_E ? new_fmark(ppctx, start) : NULL;
+  Token *fmark = NULL;
 
   if (!end) {
     if (fmark) {
@@ -1451,7 +1452,7 @@ static Token *directives(PPCtx *ppctx, Token **cur, Token *start) {
     if (tok->is_incl_guard && cond->tok->is_incl_guard && tok->file == cond->tok->file) {
       Token *name_tok = cond->tok->next;
       char *guard_name = strndup(name_tok->loc, name_tok->len);
-      hashmap_put(&include_guards, tok->file->name, guard_name);
+      hashmap_put(&ppctx->include_guards, tok->file->name, guard_name);
     }
 
     ppctx->cond_incl.cnt--;
@@ -1481,14 +1482,11 @@ static Token *directives(PPCtx *ppctx, Token **cur, Token *start) {
 
   if (equal(tok, "pragma")) {
     if (equal(tok->next, "once")) {
-      hashmap_put(&pragma_once, realpath(tok->file->name, NULL), (void *)1);
+      hashmap_put(&ppctx->pragma_once, realpath(tok->file->name, NULL), (void *)1);
       return skip_line(tok->next->next);
     }
     return pass_line(ppctx, cur, start);
   }
-
-  if (opt_cc1_asm_pp)
-    return pass_line(ppctx, cur, start);
 
   // `#`-only line is legal. It's called a null directive.
   if (tok->at_bol)
@@ -1539,7 +1537,7 @@ static Token *file_macro(PPCtx *ppctx, Token *start) {
   Token *tok = start;
   if (tok->origin)
     tok = tok->origin;
-  return new_str_token(ppctx, display_files.data[tok->file->display_file_no], start);
+  return new_str_token(ppctx, ppctx->opts->display_files.data[tok->file->display_file_no], start);
 }
 
 static Token *line_macro(PPCtx *ppctx, Token *start) {
@@ -1564,14 +1562,14 @@ static Token *counter_macro(PPCtx *ppctx, Token *start) {
 static Token *date_macro(PPCtx *ppctx, Token *start) {
   static char *str;
   if (!str) {
-    if (!cur_time)
-      cur_time = localtime(&(time_t){time(NULL)});
+    if (!ppctx->cur_time)
+      ppctx->cur_time = localtime(&(time_t){time(NULL)});
 
     static char mon[][4] = {
       "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     };
-    str = format("\"%s %2d %d\"", mon[cur_time->tm_mon], cur_time->tm_mday,
-                 cur_time->tm_year + 1900);
+    str = format("\"%s %2d %d\"", mon[ppctx->cur_time->tm_mon], ppctx->cur_time->tm_mday,
+                 ppctx->cur_time->tm_year + 1900);
   }
   return make_token(ppctx, str, start, start->next);
 }
@@ -1580,11 +1578,11 @@ static Token *date_macro(PPCtx *ppctx, Token *start) {
 static Token *time_macro(PPCtx *ppctx, Token *start) {
   static char *str;
   if (!str) {
-    if (!cur_time)
-      cur_time = localtime(&(time_t){time(NULL)});
+    if (!ppctx->cur_time)
+      ppctx->cur_time = localtime(&(time_t){time(NULL)});
 
-    str = format("\"%02d:%02d:%02d\"", cur_time->tm_hour, cur_time->tm_min,
-                 cur_time->tm_sec);
+    str = format("\"%02d:%02d:%02d\"", ppctx->cur_time->tm_hour, ppctx->cur_time->tm_min,
+                 ppctx->cur_time->tm_sec);
   }
   return make_token(ppctx, str, start, start->next);
 }
@@ -1610,7 +1608,7 @@ static Token *timestamp_macro(PPCtx *ppctx, Token *start) {
 }
 
 static Token *base_file_macro(PPCtx *ppctx, Token *start) {
-  return new_str_token(ppctx, base_file, start);
+  return new_str_token(ppctx, ppctx->base_file, start);
 }
 
 static Token *pragma_macro(PPCtx *ppctx, Token *start) {
@@ -1762,7 +1760,7 @@ void init_macros(PPCtx *ppctx) {
   arena_on(&ppctx->slimcc_ctx->pp_arena);
 
   define_macro(ppctx, "__slimcc__", "1");
-  macro_head = ppctx->macro_defs;
+  ppctx->macro_head = ppctx->macro_defs;
 
   define_macro(ppctx, "__STDC_EMBED_EMPTY__", "2");
   define_macro(ppctx, "__STDC_EMBED_FOUND__", "1");
@@ -2069,7 +2067,7 @@ static void include_files_cli(PPCtx *ppctx, StringArray *arr, Token **cur) {
 }
 
 Token *preprocess(PPCtx *ppctx, char *file, StringArray *incls, StringArray *imacros) {
-  base_file = file;
+  ppctx->base_file = file;
   add_dep_file(file, false);
 
   Token head = {0};
@@ -2112,7 +2110,7 @@ Token *prepare_parse(PPCtx *ppctx, Token *tok) {
     tok = head;
   }
 
-  if (!(free_alloc = check_mem_usage())) {
+  if (!(ppctx->slimcc_ctx->free_alloc = check_mem_usage())) {
     arena_off(&ppctx->slimcc_ctx->pp_arena);
     return preprocess3(ppctx, tok);
   }
@@ -2128,15 +2126,15 @@ Token *prepare_parse(PPCtx *ppctx, Token *tok) {
 
   tok = preprocess3(ppctx, tok);
 
-  for (t = tok_freelist; t;) {
+  for (t = ppctx->slimcc_ctx->tok_freelist; t;) {
     Token *tmp = t;
     t = t->next;
     free(tmp);
   }
 
   free(ppctx->macros.buckets);
-  free(pragma_once.buckets);
-  free(include_guards.buckets);
+  free(ppctx->pragma_once.buckets);
+  free(ppctx->include_guards.buckets);
   free(ppctx->cond_incl.data);
   arena_off(&ppctx->slimcc_ctx->pp_arena);
   return tok;

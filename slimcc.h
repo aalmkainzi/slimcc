@@ -317,13 +317,15 @@ void convert_ucn_ident(Token *tok);
 // preprocess.c
 //
 
-void init_macros(void);
-void define_macro(char *name, char *buf);
-void define_macro_cli(char *str);
-void undef_macro(char *name);
+struct PPCtx;
+
+void init_macros(struct PPCtx*);
+void define_macro(struct PPCtx*, char *name, char *buf);
+void define_macro_cli(struct PPCtx*, char *str);
+void undef_macro(struct PPCtx*,char *name);
 void dump_defines(FILE *out);
-Token *preprocess(char *file, StringArray *incls, StringArray *macros);
-Token *prepare_parse(Token *tok);
+Token *preprocess(struct PPCtx*, char *file, StringArray *incls, StringArray *macros);
+Token *prepare_parse(struct PPCtx*, Token *tok);
 Token *skip_line(Token *tok);
 bool is_pragma(Token **rest, Token *tok);
 
