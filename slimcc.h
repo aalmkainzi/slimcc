@@ -865,7 +865,7 @@ void init_ty_lp64(PPCtx*);
 Type *copy_type(Type *ty);
 Type *pointer_to(Type *base);
 Type *ptr_decay(Type *ty);
-void ptr_convert(struct SlimccOptions*, Node **node);
+void ptr_convert(SlimccOptions*, Node **node);
 Type *func_type(Type *return_ty, Token *tok);
 Type *get_func_ty(SlimccOptions *opts, Node *node);
 Type *array_of(Type *base, int64_t size);
@@ -885,7 +885,6 @@ Node *assign_cast(SlimccOptions *opts, Type *to, Node *expr);
 // codegen.c
 //
 
-int codegen(Obj *prog, FILE *out);
 void prepare_funcall(Node *node, Scope *scope);
 void prepare_inline_asm(Node *node);
 int64_t align_to(int64_t n, int64_t align);
@@ -1010,6 +1009,8 @@ typedef struct SlimccCtx
   bool free_alloc;
   struct Token *last_alloc_tok;
   struct Token *tok_freelist;
+  
+  SlimccOptions *opts;
 } SlimccCtx;
 
 #endif

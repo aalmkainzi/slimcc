@@ -448,12 +448,14 @@ Obj *slimcc_get_ast(int argc, char *argv[], const char *file_name, char *source_
 {
   SlimccCtx sctx = {};
   SlimccOptions opts = { .sctx = &sctx, .argv0 = argv[0], .opt_std = STD_C23 };
+  sctx.opts = &opts;
   ParseCtx pctx  = {
     .opts = &opts,
     .slimcc_ctx = &sctx,
     .scope = calloc(1, sizeof(Scope)),
     .globals = calloc(1, sizeof(Obj)) // this is probably what will get returned, so maybe it shouldn't be global
   };
+  opts.pctx = &pctx;
   PPCtx ppctx    = {
     .pctx = &pctx,
     .opts = &opts,

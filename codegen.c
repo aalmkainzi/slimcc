@@ -5265,22 +5265,6 @@ void prepare_funcall(Node *node, Scope *scope) {
       var->ptr = "%rsp";
       continue;
     }
-    if (opt_optimize) {
-      Node *arg_expr = var->arg_expr;
-      reg_arg_cnt++;
-
-      if (is_gp_ty(arg_expr->ty) && is_const_expr(arg_expr, NULL))
-        continue;
-      if (is_flonum(arg_expr->ty) && is_const_fp(arg_expr, NULL))
-        continue;
-      if (gen_load_opt_gp(arg_expr, REG_X64_NULL))
-        continue;
-      if (is_gp_ty(arg_expr->ty) || is_flonum(arg_expr->ty))
-        if (has_memop(var->arg_expr))
-          continue;
-      if (reg_arg_cnt == 1 && is_scalar(arg_expr->ty))
-        continue;
-    }
     var->next = scope->locals;
     scope->locals = var;
   }
