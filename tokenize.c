@@ -11,13 +11,18 @@ struct SlashDelta {
   int len;
 };
 
-static File *current_file;
-
-// True if the current position is at the beginning of a line
-static bool at_bol;
-
-// True if the current position follows a space character
-static bool has_space;
+typedef struct SlimccTokenizeCtx
+{
+  File *current_file;
+  
+  // True if the current position is at the beginning of a line
+  bool at_bol;
+  
+  // True if the current position follows a space character
+  bool has_space;
+  
+  SlimccCtx *sctx;
+} SlimccTokenizeCtx;
 
 static void canonicalize_newline(char *p);
 static void remove_backslash_newline(char *p, SlashDelta *dlt);
@@ -63,7 +68,7 @@ static void verror_at(char *filename, char *input, int line_no, char *loc, char 
   fprintf(stderr, "\n");
 }
 
-void verror_at_tok(Token *tok, char *fmt, va_list ap) {
+void verror_at_tok(SlimccOptions *opts, Token *tok, char *fmt, va_list ap) {
   if (!tok->file) {
     tok = tok->origin;
     if (!tok)
@@ -80,7 +85,7 @@ void verror_at_tok(Token *tok, char *fmt, va_list ap) {
     notice_tok(tok->origin, "in expansion of macro");
 }
 
-void error_at(char *loc, char *fmt, ...) {
+void error_at(SlimccTokenizeCtx *tctx, char *loc, char *fmt, ...) {
   int line_no = 1;
   for (char *p = current_file->contents; p < loc; p++)
     if (*p == '\n')
@@ -101,7 +106,7 @@ void error_tok(Token *tok, char *fmt, ...) {
   exit(1);
 }
 
-void warn_tok(Token *tok, char *fmt, ...) {
+void warn_tok(SlimccOptions *opts, Token *tok, char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   verror_at_tok(tok, fmt, ap);
@@ -141,7 +146,7 @@ bool consume(Token **rest, Token *tok, char *str) {
   return false;
 }
 
-static Token *new_token(TokenKind kind, char *start, char *end) {
+static Token *new_token(SlimccTokenizeCtx *tctx, TokenKind kind, char *start, char *end) {
   Token *tok;
   if ((tok = tok_freelist)) {
     tok_freelist = tok->next;
