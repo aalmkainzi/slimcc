@@ -371,8 +371,8 @@ static void parse_args(SlimccCtx *opts, int argc, char **argv) {
 
   bool no_input = !input_cnt && !has_wl;
 
-  if (no_input)
-    error("no input files");
+  //if (no_input)
+    //error("no input files");
 }
 
 static FILE *open_file(char *path) {
@@ -444,7 +444,7 @@ bool ignore_missing_dep(SlimccCtx *opts, char *path, char *filename, Token *tok)
 
 struct SlimccReport;
 
-Obj *slimcc_get_ast(int argc, char *argv[], const char *file_name, char *source_data, struct SlimccReport *report)
+Obj *slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_data, struct SlimccReport *report)
 {
   SlimccCtx sctx = {
     .argv0 = argv[0], .opt_std = STD_C23,
@@ -454,15 +454,12 @@ Obj *slimcc_get_ast(int argc, char *argv[], const char *file_name, char *source_
   };
   
   init_macros(&sctx);
-  platform_init(&sctx);
   
-  FILE *tmp = tmpfile();
-  fwrite(source_data, 1, strlen(source_data), tmp);
-  strarray_push(&sctx.input_args, "");
+  platform_init(&sctx);
   parse_args(&sctx, argc, (char**) argv);
   
   build_macros(&sctx, &sctx.macrodefs, 0);
-  Token *tok = preprocess(&sctx, source_data, &sctx.opt_include, &sctx.opt_imacros);
+  Token *tok = preprocess_data(&sctx, (char*) file_name, source_data, &sctx.opt_include, &sctx.opt_imacros);
   tok = prepare_parse(&sctx, tok);
   
   Obj *prog = parse(&sctx, tok);

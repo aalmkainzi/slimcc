@@ -1057,6 +1057,19 @@ Token *tokenize(SlimccCtx *tctx, File *file, SlashDelta *delta, Token **end) {
   return head.next;
 }
 
+Token *tokenize_file_data(SlimccCtx *tctx, char *path, char *buf, Token *tok, Token **end)
+{
+  if (Startswith3(buf, (char)0xef, (char)0xbb, (char)0xbf))
+    buf[0] = buf[1] = buf[2] = ' ';
+  
+  canonicalize_newline(buf);
+  
+  SlashDelta dlt = {0};
+  remove_backslash_newline(buf, &dlt);
+  
+  return tokenize(tctx, new_file(tctx, path, buf), &dlt, end);
+}
+
 Token *tokenize_file(SlimccCtx *tctx, char *path, Token *tok, Token **end) {
   FILE *fp;
 
@@ -1095,16 +1108,7 @@ Token *tokenize_file(SlimccCtx *tctx, char *path, Token *tok, Token **end) {
   fputc('\0', out);
   fclose(out);
 
-  // Wipe BOM markers
-  if (Startswith3(buf, (char)0xef, (char)0xbb, (char)0xbf))
-    buf[0] = buf[1] = buf[2] = ' ';
-
-  canonicalize_newline(buf);
-
-  SlashDelta dlt = {0};
-  remove_backslash_newline(buf, &dlt);
-
-  return tokenize(tctx, new_file(tctx, path, buf), &dlt, end);
+  return tokenize_file_data(tctx, path, buf, tok, end);
 }
 
 int add_display_file(SlimccCtx *tctx, char *path) {

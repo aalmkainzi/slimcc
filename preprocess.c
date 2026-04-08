@@ -2047,6 +2047,25 @@ Token *preprocess(SlimccCtx *sctx, char *file, StringArray *incls, StringArray *
   return head.next;
 }
 
+Token *preprocess_data(SlimccCtx *sctx, char *filename, char *data, StringArray *incls, StringArray *imacros) {
+  sctx->base_file = filename;
+  
+  Token head = {0};
+  Token *cur = &head;
+  
+  include_files_cli(sctx, imacros, &cur);
+  cur = &head;
+  
+  include_files_cli(sctx, incls, &cur);
+  
+  preprocess2(sctx, tokenize_file_data(sctx, filename, data, NULL, NULL), &cur);
+  
+  cur = cur->next;
+  cur->is_root = true;
+  
+  return head.next;
+}
+
 Token *prepare_parse(SlimccCtx *sctx, Token *tok) {
   {
     Token *cur;
