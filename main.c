@@ -456,6 +456,9 @@ Obj *slimcc_get_ast(int argc, char *argv[], const char *file_name, char *source_
   init_macros(&sctx);
   platform_init(&sctx);
   
+  FILE *tmp = tmpfile();
+  fwrite(source_data, 1, strlen(source_data), tmp);
+  strarray_push(&sctx.input_args, "");
   parse_args(&sctx, argc, (char**) argv);
   
   build_macros(&sctx, &sctx.macrodefs, 0);

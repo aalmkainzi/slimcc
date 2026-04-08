@@ -19,6 +19,7 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include "slimcc_lib.h"
 
 #if defined(__SANITIZE_ADDRESS__)
 # define USE_ASAN 1
@@ -78,22 +79,6 @@
    })
 #else
 # define BUFF_CAST(_t, _ptr) (*((_t *)(_ptr)))
-#endif
-
-#ifdef NO_LONG_DOUBLE
-typedef double long_double_t;
-#else
-typedef long double long_double_t;
-#endif
-
-#if __STDC_VERSION__ >= 201112L
-# define ANON_UNION_START union {
-# define ANON_UNION_END \
-   }                    \
-   ;
-#else
-# define ANON_UNION_START
-# define ANON_UNION_END
 #endif
 
 typedef struct Type Type;
@@ -171,126 +156,7 @@ char *format(char *fmt, ...) FMTCHK(1, 2);
 // tokenize.c
 //
 
-typedef enum {
-  TK_IDENT,   // Identifiers
-  TK_PUNCT,   // Punctuators
-  TK_KEYWORD, // Keywords
-  TK_STR,     // String literals
-  TK_ASM_STR,
-  TK_INT_NUM, // Integer Numeric literals
-  TK_PP_NUM,  // Preprocessing numbers
-  TK_FMARK,   // Filemarkers for -E
-  TK_PMARK,   // Placermarkers
-  TK_ATTR,    // GNU attribute
-  TK_BATTR,   // C23 attribute
-  TK_EOF,     // End-of-file markers
-  TK_UNICODE,
-
-  TK_return,
-  TK_if,
-  TK_else,
-  TK_for,
-  TK_while,
-  TK_do,
-  TK_goto,
-  TK_break,
-  TK_continue,
-  TK_switch,
-  TK_case,
-  TK_default,
-  TK_sizeof,
-  TK_Generic,
-  TK_Countof,
-  TK_alignof,
-  TK_asm,
-  TK_static_assert,
-  TK_true,
-  TK_false,
-  TK_nullptr,
-  TK_defer,
-  TK_FUNCTION,
-
-  TK_TYPEKW,
-  TK_void,
-  TK_char,
-  TK_short,
-  TK_int,
-  TK_long,
-  TK_float,
-  TK_double,
-  TK_unsigned,
-  TK_struct,
-  TK_union,
-  TK_enum,
-  TK_typedef,
-  TK_static,
-  TK_extern,
-  TK_auto,
-  TK_register,
-  TK_Atomic,
-  TK_Noreturn,
-  TK_BitInt,
-  TK_auto_type,
-  TK_alignas,
-  TK_bool,
-  TK_const,
-  TK_constexpr,
-  TK_inline,
-  TK_restrict,
-  TK_signed,
-  TK_typeof,
-  TK_typeof_unqual,
-  TK_thread_local,
-  TK_volatile,
-  TK_TYPEKW_END,
-} TokenKind;
-
-typedef enum {
-  INCL_ABS = -2,
-  INCL_REL = -1,
-} InclIdx;
-
-typedef struct File File;
-struct File {
-  char *name;
-  char *contents;
-  int file_no;
-
-  int display_file_no;
-  int line_delta;
-  InclIdx incl_idx;
-  bool is_syshdr;
-};
-
 typedef struct Token Token;
-struct Token {
-  Token *next;
-  TokenKind kind : 16;
-  bool at_bol : 1;      // True if this token is at beginning of line
-  bool has_space : 1;   // True if this token follows a space character
-  bool dont_expand : 1; // True if a macro name is encountered during its expansion
-  bool is_incl_guard : 1;
-  bool is_root : 1;
-  bool is_live : 1;
-  bool has_ucn : 1;
-  int len;   // Token length
-  char *loc; // Token location
-  File *file;
-  Token *origin; // If this is expanded from a macro, the original token
-  int line_no;   // Line number
-  int display_line_no;
-  int display_file_no;
-  Type *ty; // Used if TK_INT_NUM or TK_STR
-  ANON_UNION_START
-  Token *attr_next;
-  Token *alloc_next;
-  ANON_UNION_END
-  ANON_UNION_START
-  int64_t ival; // If kind is TK_INT_NUM, its value
-  char *str;    // String literal contents including terminating '\0'
-  Token *label_next;
-  ANON_UNION_END
-};
 
 void error(char *fmt, ...) FMTCHK(1, 2) NORETURN;
 void error_ice(char *file, int32_t line) NORETURN;
@@ -344,74 +210,6 @@ bool is_pragma(Token **rest, Token *tok);
 // parse.c
 //
 
-typedef struct Obj Obj;
-struct Obj {
-  Obj *next;
-  char *name;
-  Type *ty;
-  bool is_local;
-  bool is_live;
-  bool is_used;
-  bool is_compound_lit;
-  bool is_string_lit;
-  int alt_align;
-
-  // Local variable
-  int ofs;
-  char *ptr;
-  Obj *param_next;
-  bool pass_by_stack;
-  int stack_offset;
-  Node *arg_expr;
-  Obj *param_promoted;
-
-  // Global variable or function
-  bool is_definition;
-  bool is_static;
-  bool is_weak;
-  bool is_static_lvar;
-  Obj *static_lvars;
-  char *alias_name;
-  char *visibility;
-  char *asm_name;
-
-  // Global variable
-  bool is_tls;
-  bool is_common;
-  bool is_nocommon;
-  char *section_name;
-  char *init_data;
-  Relocation *rel;
-
-  // constexpr variable
-  char *constexpr_data;
-
-  // Function
-  bool export_fn;
-  bool export_fn_gnu;
-  bool is_gnu_inline;
-  bool is_always_inline;
-  bool is_naked;
-  bool is_noreturn;
-  bool returns_twice;
-  bool dont_reuse_stk;
-  bool dealloc_vla;
-  bool is_ctor;
-  bool is_dtor;
-  uint16_t ctor_prior;
-  uint16_t dtor_prior;
-  Node *body;
-  FuncObj *output; // backend defined output object
-};
-
-struct Relocation {
-  Relocation *next;
-  int offset;
-  char **label;
-  Obj *var;
-  long addend;
-};
-
 typedef enum {
   DF_VLA_DEALLOC,
   DF_CLEANUP_FN,
@@ -457,177 +255,12 @@ struct AsmParam {
   bool is_clobbered_x87;
 };
 
-// AST node
-typedef enum {
-  ND_NULL_STMT,
-  ND_NULL_EXPR, // Do nothing
-  ND_ADD,       // +
-  ND_SUB,       // -
-  ND_MUL,       // *
-  ND_DIV,       // /
-  ND_POS,       // unary +
-  ND_NEG,       // unary -
-  ND_MOD,       // %
-  ND_BITAND,    // &
-  ND_BITOR,     // |
-  ND_BITXOR,    // ^
-  ND_SHL,       // <<
-  ND_SHR,       // >>
-  ND_SAR,       // arithmetic >>
-  ND_EQ,        // ==
-  ND_NE,        // !=
-  ND_LT,        // <
-  ND_LE,        // <=
-  ND_GT,        // >
-  ND_GE,        // >=
-  ND_ASSIGN,    // =
-  ND_COND,      // ?:
-  ND_COMMA,     // ,
-  ND_MEMBER,    // . (struct member access)
-  ND_ADDR,      // unary &
-  ND_DEREF,     // unary *
-  ND_NOT,       // !
-  ND_BITNOT,    // ~
-  ND_LOGAND,    // &&
-  ND_LOGOR,     // ||
-  ND_RETURN,    // "return"
-  ND_IF,        // "if"
-  ND_FOR,       // "for" or "while"
-  ND_DO,        // "do"
-  ND_SWITCH,    // "switch"
-  ND_BLOCK,     // { ... }
-  ND_BREAK,
-  ND_CONT,
-  ND_GOTO,      // "goto"
-  ND_GOTO_EXPR, // "goto" labels-as-values
-  ND_LABEL,     // Labeled statement
-  ND_LABEL_VAL, // [GNU] Labels-as-values
-  ND_FUNCALL,   // Function call
-  ND_EXPR_STMT, // Expression statement
-  ND_STMT_EXPR, // Statement expression
-  ND_VAR,       // Variable
-  ND_NUM,       // Integer
-  ND_CAST,      // Type cast
-  ND_INIT_SEQ,
-  ND_ASM,      // "asm"
-  ND_CAS,      // Atomic compare-and-swap
-  ND_EXCH,     // Atomic exchange
-  ND_VA_START, // "va_start"
-  ND_VA_COPY,  // "va_copy"
-  ND_VA_ARG,   // "va_arg"
-  ND_CHAIN,
-  ND_ALLOCA,
-  ND_ALLOCA_ZINIT,
-  ND_ARITH_ASSIGN,
-  ND_POST_INCDEC,
-  ND_CKD_ARITH,
-  ND_FRAME_ADDR,
-  ND_RTN_ADDR,
-  ND_THREAD_FENCE,
-  ND_UNREACHABLE,
-  ND_UNKNOWN,
-} NodeKind;
-
 typedef struct CaseRange CaseRange;
 struct CaseRange {
   CaseRange *next;
   Node *label;
   int64_t lo;
   int64_t hi;
-};
-
-// AST node type
-struct Node {
-  Node *next;
-  NodeKind kind;
-  NodeKind arith_kind : 30; // Arithmetic Assignment
-  bool no_label : 1;
-  bool is_nonlval : 1;
-  Type *ty;
-  Token *tok; // Representative token
-
-  DeferStmt *dfr_from;
-  DeferStmt *dfr_dest;
-
-  ANON_UNION_START
-  // Misc
-  struct {
-    Node *lhs;
-    Node *rhs;
-    Node *target;
-    Obj *var;
-    Member *member;
-  } m;
-
-  // Numeric literal
-  struct {
-    int64_t val;
-    uint64_t *bitint_data;
-    long_double_t fval;
-    enum {
-      MATH_CONSTANT_NOT = 0,
-      MATH_CONSTANT_NANF,
-      MATH_CONSTANT_INFF,
-      MATH_CONSTANT_NANSF,
-      MATH_CONSTANT_NANS,
-      MATH_CONSTANT_NANSL,
-    } constant;
-  } num;
-
-  // Block or statement expression
-  struct {
-    Node *body;
-    Node *local_labels;
-    Node *result;
-  } blk;
-
-  // if, ?:, for, do, while, switch
-  struct {
-    Node *cond;
-    Node *then;
-    ANON_UNION_START
-    Node *els;
-    Node *for_init;
-    Node *sw_default;
-    ANON_UNION_END
-    ANON_UNION_START
-    Node *for_inc;
-    CaseRange *sw_cases;
-    ANON_UNION_END
-    Node *breaks;
-  } ctrl;
-
-  // goto, break, continue, case, labels
-  struct {
-    Node *next;
-    Node *node;
-    char *unique_label;
-  } lbl;
-
-  // Function call
-  struct {
-    Node *expr;
-    Obj *rtn_buf;
-    Obj *args;
-  } call;
-
-  // Atomic compare-and-swap
-  struct {
-    Node *addr;
-    Node *old_val;
-    Node *new_val;
-  } cas;
-
-  // GNU inline assembly
-  struct {
-    Token *str_tok;
-    AsmParam *outputs;
-    AsmParam *inputs;
-    Token *clobbers;
-    AsmParam *labels;
-    AsmContext *ctx; // backend defined
-  } gasm;
-  ANON_UNION_END
 };
 
 // Represents a block scope.
@@ -706,109 +339,12 @@ typedef enum {
   ETY_U64,
 } EnumType;
 
-struct EnumVal {
-  EnumVal *next;
-  Token *name;
-  int64_t val;
-};
-
 union FPVal {
   uint64_t chunk[2];
   uint32_t chunk32[4];
   long_double_t ld;
   double d;
   float f;
-};
-
-typedef enum {
-  TY_VOID,
-  TY_BOOL,
-  TY_PCHAR,
-  TY_CHAR,
-  TY_SHORT,
-  TY_INT,
-  TY_LONG,
-  TY_LONGLONG,
-  TY_FLOAT,
-  TY_DOUBLE,
-  TY_LDOUBLE,
-  TY_ENUM,
-  TY_PTR,
-  TY_NULLPTR,
-  TY_FUNC,
-  TY_ARRAY,
-  TY_VLA, // variable-length array
-  TY_STRUCT,
-  TY_UNION,
-  TY_BITINT,
-  TY_AUTO,
-  TY_ASM,
-} TypeKind;
-
-typedef enum {
-  Q_CONST = 1,
-  Q_VOLATILE = 1 << 1,
-  Q_ATOMIC = 1 << 2,
-  Q_RESTRICT = 1 << 3,
-} QualMask;
-
-struct Type {
-  TypeKind kind;
-  int64_t size;
-  int32_t align;
-  bool is_unsigned;
-  bool is_int_enum;
-  bool is_enum;
-  QualMask qual;
-  Type *origin;
-  Type *decl_next; // forward declarations
-  Token *tag;
-  EnumVal *enums;
-
-  // Pointer-to or array-of type.
-  Type *base;
-
-  // _BitInt
-  int64_t bit_cnt;
-
-  // Array
-  int64_t array_len;
-
-  // Variable-length array
-  Node *vla_len_expr;
-  Obj *vla_len_val;
-
-  // Struct
-  Member *members;
-  bool is_flexible;
-  bool is_constructing;
-
-  // Function parameter
-  QualMask param_qual;
-
-  // Function type
-  Scope *scopes;
-  Type *return_ty;
-  Obj *param_list;
-  Node *pre_calc;
-  bool is_variadic;
-  bool is_oldstyle;
-};
-
-// Struct member
-struct Member {
-  Member *next;
-  Type *ty;
-  Token *name;
-  int64_t offset;
-  int idx;
-  int alt_align;
-  bool is_packed;
-
-  bool is_bitfield;
-  bool is_aligned_bitfield;
-  int bit_offset;
-  int bit_width;
 };
 
 bool is_pow_of_two(uint64_t val);
@@ -1017,8 +553,6 @@ typedef struct SlimccCtx
   
   // True if the current position follows a space character
   bool has_space;
-  
-  SlimccCtx *sctx;
   
 } SlimccCtx;
 

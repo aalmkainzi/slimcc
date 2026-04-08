@@ -479,7 +479,7 @@ void ptr_convert(SlimccCtx *opts, Node **node) {
   Type *orig = (*node)->ty;
   Type *ty = ptr_decay(opts, orig);
   if (ty != orig)
-    *node = new_cast(opts->sctx, *node, ty);
+    *node = new_cast(opts, *node, ty);
 }
 
 Type *func_type(SlimccCtx *sctx, Type *return_ty, Token *tok) {
@@ -531,12 +531,12 @@ Node *assign_cast(SlimccCtx *opts, Type *to_ty, Node *expr) {
     if (is_ptr(expr->ty))
       return expr;
     if (is_null_ptr_constant(opts, expr))
-      return new_cast(opts->sctx, expr, to_ty);
+      return new_cast(opts, expr, to_ty);
   } else if (is_compatible(opts, to_ty, expr->ty)) {
     if (to_ty->kind != TY_VOID && to_ty->size >= 0)
       return expr;
   } else if (is_numeric(to_ty)) {
-    return new_cast(opts->sctx, expr, to_ty);
+    return new_cast(opts, expr, to_ty);
   }
   error_tok(opts, expr->tok, "invalid assignment");
 }
@@ -581,7 +581,7 @@ static void int_promotion(SlimccCtx *opts, Node **node) {
       else if (bit_width <= (ty_int->size * 8))
         ty = ty_int;
     }
-    *node = new_cast(opts->sctx, *node, ty);
+    *node = new_cast(opts, *node, ty);
     return;
   }
 
@@ -589,15 +589,15 @@ static void int_promotion(SlimccCtx *opts, Node **node) {
     return;
 
   if (ty->size < ty_int->size) {
-    *node = new_cast(opts->sctx, *node, ty_int);
+    *node = new_cast(opts, *node, ty_int);
     return;
   }
 
   if (ty->size == ty_int->size && int_rank(ty) < int_rank(ty_int)) {
     if (ty->is_unsigned)
-      *node = new_cast(opts->sctx, *node, ty_uint);
+      *node = new_cast(opts, *node, ty_uint);
     else
-      *node = new_cast(opts->sctx, *node, ty_int);
+      *node = new_cast(opts, *node, ty_int);
     return;
   }
 }
@@ -805,7 +805,7 @@ void add_type(SlimccCtx *opts, Node *node) {
     add_int_type(opts, node->m.lhs);
     add_int_type(opts, node->m.rhs);
     if (node->m.rhs->ty->kind == TY_BITINT)
-      node->m.rhs = new_cast(opts->sctx, node->m.rhs, ty_ullong);
+      node->m.rhs = new_cast(opts, node->m.rhs, ty_ullong);
     int_promotion(opts, &node->m.lhs);
     node->ty = node->m.lhs->ty;
     return;

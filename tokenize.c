@@ -135,8 +135,8 @@ bool consume(Token **rest, Token *tok, char *str) {
 
 static Token *new_token(SlimccCtx *tctx, TokenKind kind, char *start, char *end) {
   Token *tok;
-  if ((tok = tctx->sctx->tok_freelist)) {
-    tctx->sctx->tok_freelist = tok->next;
+  if ((tok = tctx->tok_freelist)) {
+    tctx->tok_freelist = tok->next;
     memset(tok, 0, sizeof(Token));
   } else {
     tok = calloc(1, sizeof(Token));
@@ -150,8 +150,8 @@ static Token *new_token(SlimccCtx *tctx, TokenKind kind, char *start, char *end)
   tok->has_space = tctx->has_space;
   tctx->at_bol = tctx->has_space = false;
 
-  tok->alloc_next = tctx->sctx->last_alloc_tok;
-  tctx->sctx->last_alloc_tok = tok;
+  tok->alloc_next = tctx->last_alloc_tok;
+  tctx->last_alloc_tok = tok;
   return tok;
 }
 
@@ -1116,7 +1116,7 @@ int add_display_file(SlimccCtx *tctx, char *path) {
 
   strarray_push(&tctx->display_files, path);
 
-  idx = ent->val = arena_malloc(tctx, &tctx->sctx->pp_arena, sizeof(*idx));
+  idx = ent->val = arena_malloc(tctx, &tctx->pp_arena, sizeof(*idx));
   *idx = tctx->display_files.len - 1;
   return *idx;
 }

@@ -1095,7 +1095,6 @@ static Token *include_file(SlimccCtx *sctx, Token *tok, char *path, Token *filen
   Token *start = tokenize_file(sctx, path, filename_tok, &end);
   start->file->incl_idx = idx;
   start->file->is_syshdr = filename_tok->file->is_syshdr || in_sysincl_path(sctx, idx);
-  add_dep_file(path, start->file->is_syshdr);
 
   Token *fmark = NULL;
 
@@ -2025,14 +2024,12 @@ static void include_files_cli(SlimccCtx *sctx, StringArray *arr, Token **cur) {
     if (ignore_missing_dep(sctx, path, arr->data[i], NULL))
       continue;
 
-    add_dep_file(path, false);
     preprocess2(sctx, tokenize_file(sctx, path, NULL, NULL), cur);
   }
 }
 
 Token *preprocess(SlimccCtx *sctx, char *file, StringArray *incls, StringArray *imacros) {
   sctx->base_file = file;
-  add_dep_file(file, false);
 
   Token head = {0};
   Token *cur = &head;
