@@ -120,12 +120,12 @@ typedef struct {
   int used;
 } Arena;
 
-void arena_on(Arena *arena);
-void arena_off(Arena *arena);
-void *arena_calloc(Arena *a, size_t sz);
-void *arena_malloc(Arena *a, size_t sz);
-void *ast_arena_malloc(size_t sz);
-void *ast_arena_calloc(size_t sz);
+void arena_on(SlimccCtx *sctx, Arena *arena);
+void arena_off(SlimccCtx *sctx, Arena *arena);
+void *arena_calloc(SlimccCtx *sctx, Arena *a, size_t sz);
+void *arena_malloc(SlimccCtx *sctx, Arena *a, size_t sz);
+void *ast_arena_malloc(SlimccCtx *sctx, size_t sz);
+void *ast_arena_calloc(SlimccCtx *sctx, size_t sz);
 
 bool check_mem_usage(void);
 
@@ -337,7 +337,7 @@ void undef_macro(SlimccCtx*,char *name);
 void dump_defines(FILE *out);
 Token *preprocess(SlimccCtx*, char *file, StringArray *incls, StringArray *macros);
 Token *prepare_parse(SlimccCtx*, Token *tok);
-Token *skip_line(Token *tok);
+Token *skip_line(SlimccCtx*, Token *tok);
 bool is_pragma(Token **rest, Token *tok);
 
 //
@@ -829,20 +829,20 @@ int32_t bitfield_footprint(Member *mem);
 void init_ty_lp64(SlimccCtx*);
 Type *copy_type(Type *ty);
 Type *pointer_to(Type *base);
-Type *ptr_decay(Type *ty);
+Type *ptr_decay(SlimccCtx*, Type *ty);
 void ptr_convert(SlimccCtx*, Node **node);
-Type *func_type(Type *return_ty, Token *tok);
+Type *func_type(SlimccCtx *sctx, Type *return_ty, Token *tok);
 Type *get_func_ty(SlimccCtx *sctx, Node *node);
 Type *array_of(Type *base, int64_t size);
 Type *vla_of(SlimccCtx *sctx, Type *base, Node *expr, int64_t arr_len);
 Type *new_type(TypeKind kind, int64_t size, int align);
-Type *new_bitint(int64_t width, Token *tok);
+Type *new_bitint(SlimccCtx *sctx, int64_t width, Token *tok);
 void add_type_chk_const(SlimccCtx *sctx, Node *node);
 void add_type(SlimccCtx *sctx, Node *node);
 Type *unqual(Type *ty);
-Type *new_derived_type(Type *newty, QualMask qual, Type *ty, Token *tok);
-Type *qual_type(QualMask msk, Type *ty, Token *tok);
-void cvqual_type(Type **ty_p, Type *ty2);
+Type *new_derived_type(SlimccCtx*, Type *newty, QualMask qual, Type *ty, Token *tok);
+Type *qual_type(SlimccCtx*, QualMask msk, Type *ty, Token *tok);
+void cvqual_type(SlimccCtx*, Type **ty_p, Type *ty2);
 bool mem_iter(Member **mem);
 Node *assign_cast(SlimccCtx *sctx, Type *to, Node *expr);
 
@@ -861,10 +861,10 @@ int64_t align_to(int64_t n, int64_t align);
 //
 
 int encode_utf8(char *buf, uint32_t c);
-uint32_t decode_utf8(char **new_pos, char *p);
+uint32_t decode_utf8(SlimccCtx *sctx, char **new_pos, char *p);
 bool is_ident1(uint32_t c);
 bool is_ident2(uint32_t c);
-int display_width(char *p, int len);
+int display_width(SlimccCtx *sctx, char *p, int len);
 
 //
 // platform.c
@@ -895,7 +895,7 @@ typedef struct {
 
 bool file_exists(char *path);
 bool in_sysincl_path(SlimccCtx *sctx, int idx);
-bool ignore_missing_dep(char *path, char *filename, Token *tok);
+bool ignore_missing_dep(SlimccCtx *sctx, char *path, char *filename, Token *tok);
 void add_dep_file(char *path, bool is_sys);
 char *find_dir_w_file(char *pattern);
 void run_subprocess(char **argv);
@@ -1008,6 +1008,18 @@ typedef struct SlimccCtx
     int capacity;
     int cnt;
   } pack_stk;
+  
+  // tokenize ctx
+  File *current_file;
+  
+  // True if the current position is at the beginning of a line
+  bool at_bol;
+  
+  // True if the current position follows a space character
+  bool has_space;
+  
+  SlimccCtx *sctx;
+  
 } SlimccCtx;
 
 #endif

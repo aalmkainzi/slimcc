@@ -32,7 +32,7 @@ Type *ty_wchar_t;
 Type *enum_ty[8];
 EnumType ety_of_int;
 
-void init_ty_lp64(PPCtx *ppctx) {
+void init_ty_lp64(SlimccCtx *ppctx) {
   define_macro(ppctx, "_LP64", "1");
   define_macro(ppctx, "__LP64__", "1");
   define_macro(ppctx, "__SIZEOF_POINTER__", "8");
@@ -96,9 +96,9 @@ Type *new_type(TypeKind kind, int64_t size, int32_t align) {
   return ty;
 }
 
-Type *new_bitint(int64_t width, Token *tok) {
+Type *new_bitint(SlimccCtx *ppctx, int64_t width, Token *tok) {
   if (width < 0 || width > 65535)
-    error_tok(tok, "unsupported _BitInt size");
+    error_tok(ppctx, tok, "unsupported _BitInt size");
 
   int sz, align;
 
@@ -128,13 +128,13 @@ Type *unqual(Type *ty) {
   return ty->origin ? ty->origin : ty;
 }
 
-Type *new_derived_type(Type *newty, QualMask qual, Type *ty, Token *tok) {
+Type *new_derived_type(SlimccCtx *ppctx, Type *newty, QualMask qual, Type *ty, Token *tok) {
   ty = ty->origin ? ty->origin : ty;
 
   if (tok && ty->kind != TY_AUTO)
     if (qual & Q_RESTRICT)
       if (ty->kind != TY_PTR || ty->base->kind == TY_FUNC)
-        error_tok(tok, "type cannot be restrict qualified");
+        error_tok(ppctx, tok, "type cannot be restrict qualified");
 
   if (!newty)
     newty = malloc(sizeof(Type));
@@ -144,11 +144,11 @@ Type *new_derived_type(Type *newty, QualMask qual, Type *ty, Token *tok) {
   return newty;
 }
 
-Type *qual_type(QualMask msk, Type *ty, Token *tok) {
+Type *qual_type(SlimccCtx *ppctx, QualMask msk, Type *ty, Token *tok) {
   if (msk == (msk & ty->qual))
     return ty;
 
-  Type *ret = new_derived_type(NULL, msk | ty->qual, ty, tok);
+  Type *ret = new_derived_type(ppctx, NULL, msk | ty->qual, ty, tok);
 
   if (ty->size < 0) {
     ret->decl_next = ty->decl_next;
@@ -157,10 +157,10 @@ Type *qual_type(QualMask msk, Type *ty, Token *tok) {
   return ret;
 }
 
-void cvqual_type(Type **ty_p, Type *ty2) {
+void cvqual_type(SlimccCtx *ppctx, Type **ty_p, Type *ty2) {
   QualMask msk = ty2->qual & (Q_CONST | Q_VOLATILE);
   if (msk)
-    *ty_p = qual_type(msk, *ty_p, NULL);
+    *ty_p = qual_type(ppctx, msk, *ty_p, NULL);
 }
 
 bool mem_iter(Member **mem) {
@@ -271,14 +271,14 @@ bool is_redundant_cast(Node *expr, Type *ty) {
   return false;
 }
 
-static void cast_if_not(SlimccOptions *opts, Type *ty, Node **node) {
+static void cast_if_not(SlimccCtx *ppctx, Type *ty, Node **node) {
   if ((*node)->ty != ty)
-    *node = new_cast(opts->sctx, *node, ty);
+    *node = new_cast(ppctx, *node, ty);
 }
 
-static bool int_to_ptr(SlimccOptions *opts, Node **node) {
+static bool int_to_ptr(SlimccCtx *ppctx, Node **node) {
   if (is_integer((*node)->ty) || (*node)->ty->kind == TY_BITINT) {
-    *node = new_cast(opts->sctx, *node, pointer_to(ty_void));
+    *node = new_cast(ppctx, *node, pointer_to(ty_void));
     return true;
   }
   return false;
@@ -315,7 +315,7 @@ static int64_t *get_arr_len(Type *ty) {
   return NULL;
 }
 
-static bool is_tag_compat(SlimccOptions *opts, Type *t1, Type *t2) {
+static bool is_tag_compat(SlimccCtx *opts, Type *t1, Type *t2) {
   return opts->opt_std >= STD_C23 && t1->tag && t2->tag && equal_tok(t1->tag, t2->tag);
 }
 
@@ -341,7 +341,7 @@ static bool is_qual_compat(Type *t1, Type *t2) {
   return t1->qual == t2->qual;
 }
 
-bool is_record_compat(SlimccOptions *opts, Type *t1, Type *t2) {
+bool is_record_compat(SlimccCtx *opts, Type *t1, Type *t2) {
   if (t1->size < 0 ||
       t2->size < 0 ||
       t1->align != t2->align ||
@@ -383,11 +383,11 @@ bool is_record_compat(SlimccOptions *opts, Type *t1, Type *t2) {
   return !mem1 == !mem2;
 }
 
-bool is_compatible2(SlimccOptions *opts, Type *t1, Type *t2) {
+bool is_compatible2(SlimccCtx *opts, Type *t1, Type *t2) {
   return is_qual_compat(t1, t2) && is_compatible(opts, t1, t2);
 }
 
-bool is_compatible(SlimccOptions *opts, Type *t1, Type *t2) {
+bool is_compatible(SlimccCtx *opts, Type *t1, Type *t2) {
   if (t1->origin)
     t1 = t1->origin;
 
@@ -463,10 +463,10 @@ Type *pointer_to(Type *base) {
   return ty;
 }
 
-Type *ptr_decay(Type *ty) {
+Type *ptr_decay(SlimccCtx *sctx, Type *ty) {
   if (is_array(ty)) {
     Type *pty = pointer_to(ty->base);
-    cvqual_type(&pty->base, ty);
+    cvqual_type(sctx, &pty->base, ty);
     return pty;
   }
   if (ty->kind == TY_FUNC)
@@ -474,17 +474,17 @@ Type *ptr_decay(Type *ty) {
   return ty;
 }
 
-void ptr_convert(SlimccOptions *opts, Node **node) {
+void ptr_convert(SlimccCtx *opts, Node **node) {
   add_type(opts, *node);
   Type *orig = (*node)->ty;
-  Type *ty = ptr_decay(orig);
+  Type *ty = ptr_decay(opts, orig);
   if (ty != orig)
     *node = new_cast(opts->sctx, *node, ty);
 }
 
-Type *func_type(Type *return_ty, Token *tok) {
+Type *func_type(SlimccCtx *sctx, Type *return_ty, Token *tok) {
   if (is_decay_ty(return_ty))
-    error_tok(tok, "invalid function return type");
+    error_tok(sctx, tok, "invalid function return type");
 
   // The C spec disallows sizeof(<function type>), but
   // GCC allows that and the expression is evaluated to 1.
@@ -493,14 +493,14 @@ Type *func_type(Type *return_ty, Token *tok) {
   return ty;
 }
 
-Type *get_func_ty(SlimccOptions *opts, Node *node) {
+Type *get_func_ty(SlimccCtx *opts, Node *node) {
   add_type(opts, node);
   Type *ty = node->ty;
   if (ty->kind == TY_FUNC)
     return ty;
   if (ty->kind == TY_PTR && ty->base->kind == TY_FUNC)
     return ty->base;
-  error_tok(node->tok, "not a function");
+  error_tok(opts, node->tok, "not a function");
 }
 
 Type *array_of(Type *base, int64_t len) {
@@ -510,7 +510,7 @@ Type *array_of(Type *base, int64_t len) {
   return ty;
 }
 
-Type *vla_of(SlimccOptions *opts, Type *base, Node *len, int64_t arr_len) {
+Type *vla_of(SlimccCtx *opts, Type *base, Node *len, int64_t arr_len) {
   Type *ty = new_type(TY_VLA, 8, 8);
   ty->base = base;
   if (len) {
@@ -523,7 +523,7 @@ Type *vla_of(SlimccOptions *opts, Type *base, Node *len, int64_t arr_len) {
   return ty;
 }
 
-Node *assign_cast(SlimccOptions *opts, Type *to_ty, Node *expr) {
+Node *assign_cast(SlimccCtx *opts, Type *to_ty, Node *expr) {
   add_type(opts, expr);
 
   if (is_ptr(to_ty)) {
@@ -538,7 +538,7 @@ Node *assign_cast(SlimccOptions *opts, Type *to_ty, Node *expr) {
   } else if (is_numeric(to_ty)) {
     return new_cast(opts->sctx, expr, to_ty);
   }
-  error_tok(expr->tok, "invalid assignment");
+  error_tok(opts, expr->tok, "invalid assignment");
 }
 
 static int int_rank(Type *t) {
@@ -554,7 +554,7 @@ static int int_rank(Type *t) {
   internal_error();
 }
 
-bool is_null_ptr_constant(SlimccOptions *opts, Node *node) {
+bool is_null_ptr_constant(SlimccCtx *opts, Node *node) {
   if (node->ty->kind == TY_NULLPTR)
     return true;
 
@@ -564,13 +564,13 @@ bool is_null_ptr_constant(SlimccOptions *opts, Node *node) {
     node = node->m.lhs;
 
   if (node->ty->kind == TY_BITINT)
-    return is_const_zero_bitint(opts->pctx, node);
+    return is_const_zero_bitint(opts, node);
 
   int64_t val;
-  return is_integer(node->ty) && is_const_expr(opts->pctx, node, &val) && val == 0;
+  return is_integer(node->ty) && is_const_expr(opts, node, &val) && val == 0;
 }
 
-static void int_promotion(SlimccOptions *opts, Node **node) {
+static void int_promotion(SlimccCtx *opts, Node **node) {
   Type *ty = (*node)->ty;
   int bit_width;
 
@@ -602,7 +602,7 @@ static void int_promotion(SlimccOptions *opts, Node **node) {
   }
 }
 
-static Type *cond_ptr_conv2(SlimccOptions *opts, Type *ty1, Type *ty2, int msk, Node **cond, Obj **cond_var) {
+static Type *cond_ptr_conv2(SlimccCtx *opts, Type *ty1, Type *ty2, int msk, Node **cond, Obj **cond_var) {
   msk |= ty1->qual | ty2->qual;
 
   if (is_array(ty1)) {
@@ -614,14 +614,14 @@ static Type *cond_ptr_conv2(SlimccOptions *opts, Type *ty1, Type *ty2, int msk, 
       return array_of(base, *len);
     }
     if (ty1->vla_len_expr || ty2->vla_len_expr)
-      return vla_cond_result_len(opts->pctx, ty1, ty2, base, cond, cond_var);
+      return vla_cond_result_len(opts, ty1, ty2, base, cond, cond_var);
 
     return array_of(base, -1);
   }
-  return qual_type(msk, ty1, NULL);
+  return qual_type(opts, msk, ty1, NULL);
 }
 
-static Type *cond_ptr_conv(SlimccOptions *opts, Node **lhs, Node **rhs, Node **cond) {
+static Type *cond_ptr_conv(SlimccCtx *opts, Node **lhs, Node **rhs, Node **cond) {
   Type *ty1 = (*lhs)->ty;
   Type *ty2 = (*rhs)->ty;
 
@@ -635,7 +635,7 @@ static Type *cond_ptr_conv(SlimccOptions *opts, Node **lhs, Node **rhs, Node **c
       return ty2;
 
     if (ty1->base->kind == TY_VOID || ty2->base->kind == TY_VOID)
-      return pointer_to(qual_type(ty1->base->qual | ty2->base->qual, ty_void, NULL));
+      return pointer_to(qual_type(opts, ty1->base->qual | ty2->base->qual, ty_void, NULL));
 
     if (is_compatible(opts, ty1->base, ty2->base))
       return pointer_to(cond_ptr_conv2(opts, ty1->base, ty2->base, 0, cond, &(Obj *){0}));
@@ -648,23 +648,23 @@ static Type *cond_ptr_conv(SlimccOptions *opts, Node **lhs, Node **rhs, Node **c
   if (ty2->kind == TY_PTR && int_to_ptr(opts, lhs))
     return ty2;
 
-  error_tok((is_ptr(ty1) ? *rhs : *lhs)->tok, "invalid operand");
+  error_tok(opts, (is_ptr(ty1) ? *rhs : *lhs)->tok, "invalid operand");
 }
 
-static void add_int_type(SlimccOptions *opts, Node *node) {
+static void add_int_type(SlimccCtx *opts, Node *node) {
   add_type(opts, node);
   if (!(is_integer(node->ty) || node->ty->kind == TY_BITINT))
-    error_tok(node->tok, "invalid operand");
+    error_tok(opts, node->tok, "invalid operand");
 }
 
-static Type *get_common_type(SlimccOptions *opts, Node **lhs, Node **rhs) {
+static Type *get_common_type(SlimccCtx *opts, Node **lhs, Node **rhs) {
   Type *ty1 = (*lhs)->ty;
   Type *ty2 = (*rhs)->ty;
 
   if (!is_numeric(ty1))
-    error_tok((*lhs)->tok, "invalid operand");
+    error_tok(opts, (*lhs)->tok, "invalid operand");
   if (!is_numeric(ty2))
-    error_tok((*rhs)->tok, "invalid operand");
+    error_tok(opts, (*rhs)->tok, "invalid operand");
 
   if (ty1->kind == TY_LDOUBLE || ty2->kind == TY_LDOUBLE)
     return ty_ldouble;
@@ -701,20 +701,20 @@ static Type *get_common_type(SlimccOptions *opts, Node **lhs, Node **rhs) {
   internal_error();
 }
 
-static Type *usual_arith_conv(SlimccOptions *opts, Node **lhs, Node **rhs) {
+static Type *usual_arith_conv(SlimccCtx *opts, Node **lhs, Node **rhs) {
   Type *ty = get_common_type(opts, lhs, rhs);
   cast_if_not(opts, ty, lhs);
   cast_if_not(opts, ty, rhs);
   return ty;
 }
 
-void add_type_chk_const(SlimccOptions *opts, Node *node) {
+void add_type_chk_const(SlimccCtx *opts, Node *node) {
   add_type(opts, node);
   if (node->ty->qual & Q_CONST)
-    error_tok(node->tok, "operand is const");
+    error_tok(opts, node->tok, "operand is const");
 }
 
-void add_type(SlimccOptions *opts, Node *node) {
+void add_type(SlimccCtx *opts, Node *node) {
   if (!node || node->ty)
     return;
 
@@ -753,7 +753,7 @@ void add_type(SlimccOptions *opts, Node *node) {
   case ND_NEG:
     add_type(opts, node->m.lhs);
     if (!is_numeric(node->m.lhs->ty))
-      error_tok(node->m.lhs->tok, "invalid operand");
+      error_tok(opts, node->m.lhs->tok, "invalid operand");
     if (is_integer(node->m.lhs->ty))
       int_promotion(opts, &node->m.lhs);
     node->ty = node->m.lhs->ty;
@@ -840,7 +840,7 @@ void add_type(SlimccOptions *opts, Node *node) {
   case ND_COMMA:
     add_type(opts, node->m.lhs);
     add_type(opts, node->m.rhs);
-    node->ty = ptr_decay(node->m.rhs->ty);
+    node->ty = ptr_decay(opts, node->m.rhs->ty);
     return;
   case ND_MEMBER:
     add_type(opts, node->m.lhs);
@@ -853,7 +853,7 @@ void add_type(SlimccOptions *opts, Node *node) {
   case ND_DEREF:
     add_type(opts, node->m.lhs);
     if (!node->m.lhs->ty->base)
-      error_tok(node->tok, "invalid pointer dereference");
+      error_tok(opts, node->tok, "invalid pointer dereference");
 
     node->ty = node->m.lhs->ty->base;
     return;
@@ -896,15 +896,15 @@ void add_type(SlimccOptions *opts, Node *node) {
     node->ty = ty_bool;
 
     if (node->cas.addr->ty->kind != TY_PTR)
-      error_tok(node->cas.addr->tok, "pointer expected");
+      error_tok(opts, node->cas.addr->tok, "pointer expected");
     if (node->cas.old_val->ty->kind != TY_PTR)
-      error_tok(node->cas.old_val->tok, "pointer expected");
+      error_tok(opts, node->cas.old_val->tok, "pointer expected");
     return;
   case ND_EXCH:
     add_type(opts, node->m.lhs);
     add_type(opts, node->m.rhs);
     if (node->m.lhs->ty->kind != TY_PTR)
-      error_tok(node->m.lhs->tok, "pointer expected");
+      error_tok(opts, node->m.lhs->tok, "pointer expected");
     node->ty = node->m.lhs->ty->base;
     return;
   case ND_VA_START:

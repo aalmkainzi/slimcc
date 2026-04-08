@@ -1,6 +1,6 @@
 #include "slimcc.h"
 
-void platform_init(PPCtx *ppctx) {
+void platform_init(SlimccCtx *ppctx) {
   define_macro(ppctx, "__ELF__", "1");
 
   define_macro(ppctx, "linux", "1");

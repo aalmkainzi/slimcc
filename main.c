@@ -92,7 +92,7 @@ static bool set_true(char *p, char *str, bool *opt) {
   return set_bool(p, true, str, opt);
 }
 
-static void set_std(SlimccOptions *opts, bool is_iso, char *arg) {
+static void set_std(SlimccCtx *opts, bool is_iso, char *arg) {
   char *end;
   int val = strtoul(arg, &end, 10);
 
@@ -122,27 +122,27 @@ static void macrochange_push(MacroChangeArr *arr, char *arg, bool is_def) {
   m->is_def = is_def;
 }
 
-static void build_macros(struct PPCtx *ppctx, SlimccOptions *opts, MacroChangeArr *arr, bool is_asm_pp) {
+static void build_macros(SlimccCtx *opts, MacroChangeArr *arr, bool is_asm_pp) {
   if (is_asm_pp) {
-    define_macro(ppctx, "__ASSEMBLER__", "1");
+    define_macro(opts, "__ASSEMBLER__", "1");
   } else {
     if (opts->is_iso_std)
-      define_macro(ppctx, "__STRICT_ANSI__", "1");
+      define_macro(opts, "__STRICT_ANSI__", "1");
 
     switch (opts->opt_std) {
-    case STD_C99: define_macro(ppctx, "__STDC_VERSION__", "199901L"); break;
-    case STD_C11: define_macro(ppctx, "__STDC_VERSION__", "201112L"); break;
-    case STD_C17: define_macro(ppctx, "__STDC_VERSION__", "201710L"); break;
-    case STD_C23: define_macro(ppctx, "__STDC_VERSION__", "202311L"); break;
+    case STD_C99: define_macro(opts, "__STDC_VERSION__", "199901L"); break;
+    case STD_C11: define_macro(opts, "__STDC_VERSION__", "201112L"); break;
+    case STD_C17: define_macro(opts, "__STDC_VERSION__", "201710L"); break;
+    case STD_C23: define_macro(opts, "__STDC_VERSION__", "202311L"); break;
     }
   }
 
   for (int i = 0; i < arr->len; i++) {
     MacroChange *m = &arr->data[i];
     if (m->is_def)
-      define_macro_cli(ppctx, m->arg);
+      define_macro_cli(opts, m->arg);
     else
-      undef_macro(ppctx, m->arg);
+      undef_macro(opts, m->arg);
   }
 }
 
@@ -175,7 +175,7 @@ static char *quote_makefile(char *s) {
   return buf;
 }
 
-static void build_incl_paths(SlimccOptions *opts, char *opt_B, bool opt_nostdinc, StringArray *isystem,
+static void build_incl_paths(SlimccCtx *opts, char *opt_B, bool opt_nostdinc, StringArray *isystem,
                              StringArray *idirafter) {
   if (opt_B)
     add_include_path(&opts->sysincl_paths, opt_B);
@@ -204,7 +204,7 @@ static void build_incl_paths(SlimccOptions *opts, char *opt_B, bool opt_nostdinc
     strarray_push(&opts->include_paths, opts->sysincl_paths.data[i]);
 }
 
-static void parse_args(struct PPCtx *ppctx, SlimccOptions *opts, int argc, char **argv) {
+static void parse_args(SlimccCtx *opts, int argc, char **argv) {
   char *arg;
   int input_cnt = 0;
   bool has_wl = false;
@@ -305,7 +305,7 @@ static void parse_args(struct PPCtx *ppctx, SlimccOptions *opts, int argc, char 
       // -f only options
       if (b) {
         if (set_true(arg, "defer-ts", &opts->opt_fdefer_ts)) {
-          define_macro(ppctx, "__STDC_DEFER_TS25755__", "2");
+          define_macro(opts, "__STDC_DEFER_TS25755__", "2");
           continue;
         }
         if (set_bool(arg, false, "signed-char", &ty_pchar->is_unsigned) ||
@@ -398,7 +398,7 @@ static bool endswith(char *p, char *q) {
   return (len1 >= len2) && !strcmp(p + len1 - len2, q);
 }
 
-static void print_linemarker(SlimccOptions *opts, FILE *out, Token *tok) {
+static void print_linemarker(SlimccCtx *opts, FILE *out, Token *tok) {
   char *name = opts->display_files.data[tok->display_file_no];
   if (!strcmp(name, "-"))
     name = "<stdin>";
@@ -429,14 +429,14 @@ static void print_tokens(Token *tok, FILE *out) {
   fprintf(out, "\n");
 }
 
-bool in_sysincl_path(SlimccOptions *opts, int idx) {
+bool in_sysincl_path(SlimccCtx *opts, int idx) {
   return idx >= opts->incl_cnt;
 }
 
-bool ignore_missing_dep(char *path, char *filename, Token *tok) {
+bool ignore_missing_dep(SlimccCtx *opts, char *path, char *filename, Token *tok) {
   if (!path) {
     if (tok)
-      error_tok(tok, "file not found");
+      error_tok(opts, tok, "file not found");
     error("`%s` file not found", filename);
   }
   return false;
@@ -446,33 +446,23 @@ struct SlimccReport;
 
 Obj *slimcc_get_ast(int argc, char *argv[], const char *file_name, char *source_data, struct SlimccReport *report)
 {
-  SlimccCtx sctx = {};
-  SlimccOptions opts = { .sctx = &sctx, .argv0 = argv[0], .opt_std = STD_C23 };
-  sctx.opts = &opts;
-  ParseCtx pctx  = {
-    .opts = &opts,
-    .slimcc_ctx = &sctx,
+  SlimccCtx sctx = {
+    .argv0 = argv[0], .opt_std = STD_C23,
     .scope = calloc(1, sizeof(Scope)),
-    .globals = calloc(1, sizeof(Obj)) // this is probably what will get returned, so maybe it shouldn't be global
-  };
-  opts.pctx = &pctx;
-  PPCtx ppctx    = {
-    .pctx = &pctx,
-    .opts = &opts,
-    .slimcc_ctx = &sctx,
+    .globals = calloc(1, sizeof(Obj)),
     .macro_defs = &(MacroDef){0}
   };
   
-  init_macros(&ppctx);
-  platform_init(&ppctx);
+  init_macros(&sctx);
+  platform_init(&sctx);
   
-  parse_args(&ppctx, &opts, argc, (char**) argv);
+  parse_args(&sctx, argc, (char**) argv);
   
-  build_macros(&ppctx, &opts, &opts.macrodefs, 0);
-  Token *tok = preprocess(&ppctx, source_data, &opts.opt_include, &opts.opt_imacros);
-  tok = prepare_parse(&ppctx, tok);
+  build_macros(&sctx, &sctx.macrodefs, 0);
+  Token *tok = preprocess(&sctx, source_data, &sctx.opt_include, &sctx.opt_imacros);
+  tok = prepare_parse(&sctx, tok);
   
-  Obj *prog = parse(&pctx, tok);
+  Obj *prog = parse(&sctx, tok);
   
   return prog;
 }

@@ -11,19 +11,6 @@ struct SlashDelta {
   int len;
 };
 
-typedef struct SlimccTokenizeCtx
-{
-  File *current_file;
-  
-  // True if the current position is at the beginning of a line
-  bool at_bol;
-  
-  // True if the current position follows a space character
-  bool has_space;
-  
-  SlimccCtx *sctx;
-} SlimccTokenizeCtx;
-
 static void canonicalize_newline(char *p);
 static void remove_backslash_newline(char *p, SlashDelta *dlt);
 
@@ -44,7 +31,7 @@ void error_ice(char *file, int32_t line) {
   error("internal error at %s:%" PRIi32, file, line);
 }
 
-static void verror_at(char *filename, char *input, int line_no, char *loc, char *fmt,
+static void verror_at(SlimccCtx *sctx, char *filename, char *input, int line_no, char *loc, char *fmt,
                       va_list ap) {
   // Find a line containing `loc`.
   char *line = loc;
@@ -60,7 +47,7 @@ static void verror_at(char *filename, char *input, int line_no, char *loc, char 
   fprintf(stderr, "%.*s\n", (int)(end - line), line);
 
   // Show the error message.
-  int pos = display_width(line, loc - line);
+  int pos = display_width(sctx, line, loc - line);
 
   fprintf(stderr, "%*s", pos, ""); // print pos spaces.
   fprintf(stderr, "^ ");
@@ -68,7 +55,7 @@ static void verror_at(char *filename, char *input, int line_no, char *loc, char 
   fprintf(stderr, "\n");
 }
 
-void verror_at_tok(SlimccOptions *opts, Token *tok, char *fmt, va_list ap) {
+void verror_at_tok(SlimccCtx *opts, Token *tok, char *fmt, va_list ap) {
   if (!tok->file) {
     tok = tok->origin;
     if (!tok)
@@ -79,13 +66,13 @@ void verror_at_tok(SlimccOptions *opts, Token *tok, char *fmt, va_list ap) {
       fprintf(stderr, "%s:%d | ", opts->display_files.data[tok->display_file_no],
               tok->display_line_no);
   }
-  verror_at(tok->file->name, tok->file->contents, tok->line_no, tok->loc, fmt, ap);
+  verror_at(opts, tok->file->name, tok->file->contents, tok->line_no, tok->loc, fmt, ap);
 
   if (tok->origin)
     notice_tok(opts, tok->origin, "in expansion of macro");
 }
 
-void error_at(SlimccTokenizeCtx *tctx, char *loc, char *fmt, ...) {
+void error_at(SlimccCtx *tctx, char *loc, char *fmt, ...) {
   int line_no = 1;
   for (char *p = tctx->current_file->contents; p < loc; p++)
     if (*p == '\n')
@@ -93,12 +80,12 @@ void error_at(SlimccTokenizeCtx *tctx, char *loc, char *fmt, ...) {
 
   va_list ap;
   va_start(ap, fmt);
-  verror_at(tctx->current_file->name, tctx->current_file->contents, line_no, loc, fmt, ap);
+  verror_at(tctx, tctx->current_file->name, tctx->current_file->contents, line_no, loc, fmt, ap);
   va_end(ap);
   exit(1);
 }
 
-void error_tok(SlimccOptions *opts, Token *tok, char *fmt, ...) {
+void error_tok(SlimccCtx *opts, Token *tok, char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   verror_at_tok(opts, tok, fmt, ap);
@@ -106,7 +93,7 @@ void error_tok(SlimccOptions *opts, Token *tok, char *fmt, ...) {
   exit(1);
 }
 
-void warn_tok(SlimccOptions *opts, Token *tok, char *fmt, ...) {
+void warn_tok(SlimccCtx *opts, Token *tok, char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   verror_at_tok(opts, tok, fmt, ap);
@@ -115,7 +102,7 @@ void warn_tok(SlimccOptions *opts, Token *tok, char *fmt, ...) {
     exit(1);
 }
 
-void notice_tok(SlimccOptions *opts, Token *tok, char *fmt, ...) {
+void notice_tok(SlimccCtx *opts, Token *tok, char *fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   verror_at_tok(opts, tok, fmt, ap);
@@ -132,7 +119,7 @@ bool equal_ext(Token *tok, char *op) {
   return equal(tok, op) || equal(tok, buf);
 }
 
-Token *skip(SlimccOptions *opts, Token *tok, char *op) {
+Token *skip(SlimccCtx *opts, Token *tok, char *op) {
   if (!equal(tok, op))
     error_tok(opts, tok, "expected '%s'", op);
   return tok->next;
@@ -146,7 +133,7 @@ bool consume(Token **rest, Token *tok, char *str) {
   return false;
 }
 
-static Token *new_token(SlimccTokenizeCtx *tctx, TokenKind kind, char *start, char *end) {
+static Token *new_token(SlimccCtx *tctx, TokenKind kind, char *start, char *end) {
   Token *tok;
   if ((tok = tctx->sctx->tok_freelist)) {
     tctx->sctx->tok_freelist = tok->next;
@@ -168,7 +155,7 @@ static Token *new_token(SlimccTokenizeCtx *tctx, TokenKind kind, char *start, ch
   return tok;
 }
 
-static Token *read_ident(SlimccTokenizeCtx *tctx, char *p) {
+static Token *read_ident(SlimccCtx *tctx, char *p) {
   char *start = p;
   bool has_ucn = false;
   bool bad_unicode = false;
@@ -189,7 +176,7 @@ static Token *read_ident(SlimccTokenizeCtx *tctx, char *p) {
     }
     if ((unsigned char)*p >= 128) {
       char *pos;
-      uint32_t c = decode_utf8(&pos, p);
+      uint32_t c = decode_utf8(tctx, &pos, p);
       if (!(p == start ? is_ident1(c) : is_ident2(c)))
         bad_unicode = true;
       p = pos;
@@ -259,7 +246,7 @@ static int read_punct(char *p) {
   return 0;
 }
 
-TokenKind ident_keyword(SlimccOptions *opts, Token *tok) {
+TokenKind ident_keyword(SlimccCtx *opts, Token *tok) {
   static HashMap map;
 
   if (map.capacity == 0) {
@@ -402,7 +389,7 @@ static bool read_ucn(uint32_t *val, char **new_pos, char *p) {
   return true;
 }
 
-static uint32_t read_escape_seq(SlimccTokenizeCtx *tctx, char **new_pos, char *p) {
+static uint32_t read_escape_seq(SlimccCtx *tctx, char **new_pos, char *p) {
   if (Inrange(*p, '0', '7')) {
     uint32_t c = *p++ - '0';
     if (Inrange(*p, '0', '7')) {
@@ -449,7 +436,7 @@ static uint32_t read_escape_seq(SlimccTokenizeCtx *tctx, char **new_pos, char *p
   }
 }
 
-static Token *asm_string_literal(SlimccTokenizeCtx *tctx, char *p, char end) {
+static Token *asm_string_literal(SlimccCtx *tctx, char *p, char end) {
   char *start = p++;
   bool is_closed = false;
   for (;;) {
@@ -469,7 +456,7 @@ static Token *asm_string_literal(SlimccTokenizeCtx *tctx, char *p, char end) {
 }
 
 // Find a closing double-quote.
-static char *string_literal_end(SlimccTokenizeCtx *tctx, char *p) {
+static char *string_literal_end(SlimccCtx *tctx, char *p) {
   char *start = p;
   for (; *p != '"'; p++) {
     if (*p == '\n' || *p == '\0')
@@ -480,7 +467,7 @@ static char *string_literal_end(SlimccTokenizeCtx *tctx, char *p) {
   return p;
 }
 
-static Token *read_string_literal(SlimccTokenizeCtx *tctx, char *start, char *quote, Type *ty) {
+static Token *read_string_literal(SlimccCtx *tctx, char *start, char *quote, Type *ty) {
   char *end = string_literal_end(tctx, quote + 1);
   char *buf = calloc(1, end - quote);
   int len = 0;
@@ -510,7 +497,7 @@ static Token *read_string_literal(SlimccTokenizeCtx *tctx, char *start, char *qu
 // equal to or larger than that are encoded in 4 bytes. Each 2 bytes
 // in the 4 byte sequence is called "surrogate", and a 4 byte sequence
 // is called a "surrogate pair".
-static Token *read_utf16_string_literal(SlimccTokenizeCtx *tctx, char *start, char *quote) {
+static Token *read_utf16_string_literal(SlimccCtx *tctx, char *start, char *quote) {
   char *end = string_literal_end(tctx, quote + 1);
   uint16_t *buf = calloc(2, end - start);
   int len = 0;
@@ -520,7 +507,7 @@ static Token *read_utf16_string_literal(SlimccTokenizeCtx *tctx, char *start, ch
     if (*p == '\\')
       c = read_escape_seq(tctx, &p, p + 1);
     else
-      c = decode_utf8(&p, p);
+      c = decode_utf8(tctx, &p, p);
 
     if (c < 0x10000) {
       // Encode a code point in 2 bytes.
@@ -543,7 +530,7 @@ static Token *read_utf16_string_literal(SlimccTokenizeCtx *tctx, char *start, ch
 //
 // UTF-32 is a fixed-width encoding for Unicode. Each code point is
 // encoded in 4 bytes.
-static Token *read_utf32_string_literal(SlimccTokenizeCtx *tctx, char *start, char *quote, Type *ty) {
+static Token *read_utf32_string_literal(SlimccCtx *tctx, char *start, char *quote, Type *ty) {
   char *end = string_literal_end(tctx, quote + 1);
   uint32_t *buf = calloc(4, end - quote);
   int len = 0;
@@ -552,7 +539,7 @@ static Token *read_utf32_string_literal(SlimccTokenizeCtx *tctx, char *start, ch
     if (*p == '\\')
       buf[len++] = read_escape_seq(tctx, &p, p + 1);
     else
-      buf[len++] = decode_utf8(&p, p);
+      buf[len++] = decode_utf8(tctx, &p, p);
   }
 
   Token *tok = new_token(tctx, TK_STR, start, end + 1);
@@ -561,7 +548,7 @@ static Token *read_utf32_string_literal(SlimccTokenizeCtx *tctx, char *start, ch
   return tok;
 }
 
-static Token *read_char_literal(SlimccTokenizeCtx *tctx, char *start) {
+static Token *read_char_literal(SlimccCtx *tctx, char *start) {
   uint32_t val = 0;
   bool is_multi = false;
   char *p = start + 1;
@@ -576,7 +563,7 @@ static Token *read_char_literal(SlimccTokenizeCtx *tctx, char *start) {
     if (*p == '\\')
       c = read_escape_seq(tctx, &p, p + 1);
     else
-      c = decode_utf8(&p, p);
+      c = decode_utf8(tctx, &p, p);
 
     val <<= 8;
     val |= c;
@@ -593,7 +580,7 @@ static Token *read_char_literal(SlimccTokenizeCtx *tctx, char *start) {
   return tok;
 }
 
-static Token *read_unicode_char_literal(SlimccTokenizeCtx *tctx, char *start, char *quote, Type *ty) {
+static Token *read_unicode_char_literal(SlimccCtx *tctx, char *start, char *quote, Type *ty) {
   char *p = quote + 1;
   if (*p == '\0')
     error_at(tctx, start, "unclosed character literal");
@@ -602,7 +589,7 @@ static Token *read_unicode_char_literal(SlimccTokenizeCtx *tctx, char *start, ch
   if (*p == '\\')
     c = read_escape_seq(tctx, &p, p + 1);
   else
-    c = decode_utf8(&p, p);
+    c = decode_utf8(tctx, &p, p);
 
   if (*p != '\'')
     error_at(tctx, p, "invalid unicode character literal");
@@ -618,12 +605,12 @@ static Token *read_unicode_char_literal(SlimccTokenizeCtx *tctx, char *start, ch
 // In order to handle that, a numeric literal is tokenized as a
 // "pp-number" token first and then converted to a regular number
 // token after preprocessing.
-static Token *new_pp_number(SlimccTokenizeCtx *tctx, char *start, char *p) {
+static Token *new_pp_number(SlimccCtx *tctx, char *start, char *p) {
   for (;;) {
     if (*p == '.') {
       p++;
       continue;
-    } else if (*p == '\'' && Isalnum(p[1]) && tctx->sctx->opts->opt_std >= STD_C23) {
+    } else if (*p == '\'' && Isalnum(p[1]) && tctx->opt_std >= STD_C23) {
       p += 2;
       continue;
     } else if ((*p == '+' || *p == '-') && (Casecmp(p[-1], 'e') || Casecmp(p[-1], 'p'))) {
@@ -640,7 +627,7 @@ static Token *new_pp_number(SlimccTokenizeCtx *tctx, char *start, char *p) {
     }
     if ((unsigned char)*p >= 128) {
       char *pos;
-      if (is_ident2(decode_utf8(&pos, p))) {
+      if (is_ident2(decode_utf8(tctx, &pos, p))) {
         p = pos;
         continue;
       }
@@ -668,7 +655,7 @@ static void push_digit(uint32_t **data, size_t *limb_cnt, int base, int digit) {
   *limb_cnt = cnt;
 }
 
-static bool convert_pp_bitint(char *begin, char *end, Node *node, int base,
+static bool convert_pp_bitint(SlimccCtx *sctx, char *begin, char *end, Node *node, int base,
                               bool is_unsigned) {
   uint32_t *data = calloc(2, sizeof(uint32_t));
   size_t limb32 = 1;
@@ -701,12 +688,12 @@ static bool convert_pp_bitint(char *begin, char *end, Node *node, int base,
     data[limb32] = 0;
   }
   node->num.bitint_data = (uint64_t *)data;
-  node->ty = new_bitint(bit_width, node->tok);
+  node->ty = new_bitint(sctx, bit_width, node->tok);
   node->ty->is_unsigned = is_unsigned;
   return true;
 }
 
-static bool convert_pp_int(char *loc, int len, Node *node) {
+static bool convert_pp_int(SlimccCtx *sctx, char *loc, int len, Node *node) {
   char *p = loc;
   char *p_end = loc + len;
 
@@ -753,7 +740,7 @@ static bool convert_pp_int(char *loc, int len, Node *node) {
   if (p != p_end)
     return false;
   if (wb)
-    return convert_pp_bitint(digit_begin, digit_end, node, base, u);
+    return convert_pp_bitint(sctx, digit_begin, digit_end, node, base, u);
 
   Type *ty;
   Type *max_ty = (base == 10) ? ty_ullong : ty_ulong;
@@ -781,7 +768,7 @@ static bool convert_pp_int(char *loc, int len, Node *node) {
   return true;
 }
 
-void convert_pp_number(SlimccOptions *opts, Token *tok, Node *node) {
+void convert_pp_number(SlimccCtx *opts, Token *tok, Node *node) {
   if (tok->kind == TK_INT_NUM) {
     if ((uint64_t)tok->ival >> tok->ty->size * 8)
       error_tok(opts, tok, "character too large for literal type");
@@ -815,7 +802,7 @@ void convert_pp_number(SlimccOptions *opts, Token *tok, Node *node) {
   }
 
   // Try to parse as an integer constant.
-  if (convert_pp_int(p, len, node))
+  if (convert_pp_int(opts, p, len, node))
     return;
 
   // If it's not an integer, it must be a floating point constant.
@@ -872,7 +859,7 @@ static void add_line_numbers(Token *tok, File *file, SlashDelta *dlt) {
     free(dlt->sp);
 }
 
-void tokenize_string_literal(SlimccTokenizeCtx *tctx, Token *tok, Type *basety) {
+void tokenize_string_literal(SlimccCtx *tctx, Token *tok, Type *basety) {
   Token *tok2;
   if (basety->size == 2)
     tok2 = read_utf16_string_literal(tctx, tok->loc, tok->loc);
@@ -882,7 +869,7 @@ void tokenize_string_literal(SlimccTokenizeCtx *tctx, Token *tok, Type *basety) 
   tok->str = tok2->str;
 }
 
-void convert_ucn_ident(SlimccOptions *opts, Token *tok) {
+void convert_ucn_ident(SlimccCtx *opts, Token *tok) {
   char *end = tok->loc + tok->len;
   char *p = tok->loc;
   char *q = p;
@@ -911,7 +898,7 @@ void convert_ucn_ident(SlimccOptions *opts, Token *tok) {
     *q++ = ' ';
 }
 
-Token *tokenize(SlimccTokenizeCtx *tctx, File *file, SlashDelta *delta, Token **end) {
+Token *tokenize(SlimccCtx *tctx, File *file, SlashDelta *delta, Token **end) {
   tctx->current_file = file;
 
   char *p = file->contents;
@@ -986,7 +973,7 @@ Token *tokenize(SlimccTokenizeCtx *tctx, File *file, SlashDelta *delta, Token **
 
       // UTF-8 string literal
       if (Startswith3(p, 'u', '8', '\"')) {
-        if (tctx->sctx->opts->opt_std >= STD_C23)
+        if (tctx->opt_std >= STD_C23)
           cur = cur->next = read_string_literal(tctx, p, p + 2, ty_uchar);
         else
           cur = cur->next = read_string_literal(tctx, p, p + 2, ty_pchar);
@@ -1023,7 +1010,7 @@ Token *tokenize(SlimccTokenizeCtx *tctx, File *file, SlashDelta *delta, Token **
       }
 
       // UTF-8 character literal
-      if (Startswith3(p, 'u', '8', '\'') && tctx->sctx->opts->opt_std >= STD_C23) {
+      if (Startswith3(p, 'u', '8', '\'') && tctx->opt_std >= STD_C23) {
         cur = cur->next = read_unicode_char_literal(tctx, p, p + 2, ty_uchar);
         p += cur->len;
         continue;
@@ -1070,7 +1057,7 @@ Token *tokenize(SlimccTokenizeCtx *tctx, File *file, SlashDelta *delta, Token **
   return head.next;
 }
 
-Token *tokenize_file(SlimccTokenizeCtx *tctx, char *path, Token *tok, Token **end) {
+Token *tokenize_file(SlimccCtx *tctx, char *path, Token *tok, Token **end) {
   FILE *fp;
 
   if (strcmp(path, "-") == 0) {
@@ -1080,7 +1067,7 @@ Token *tokenize_file(SlimccTokenizeCtx *tctx, char *path, Token *tok, Token **en
     fp = fopen(path, "r");
     if (!fp) {
       if (tok)
-        error_tok(tctx->sctx->opts, tok, "%s: cannot open file: %s", path, strerror(errno));
+        error_tok(tctx, tok, "%s: cannot open file: %s", path, strerror(errno));
       error("%s: cannot open file: %s", path, strerror(errno));
     }
   }
@@ -1120,21 +1107,21 @@ Token *tokenize_file(SlimccTokenizeCtx *tctx, char *path, Token *tok, Token **en
   return tokenize(tctx, new_file(tctx, path, buf), &dlt, end);
 }
 
-int add_display_file(SlimccTokenizeCtx *tctx, char *path) {
+int add_display_file(SlimccCtx *tctx, char *path) {
   static HashMap map;
   HashEntry *ent = hashmap_get_or_insert(&map, path, strlen(path));
   int *idx = ent->val;
   if (idx)
     return *idx;
 
-  strarray_push(&tctx->sctx->opts->display_files, path);
+  strarray_push(&tctx->display_files, path);
 
-  idx = ent->val = arena_malloc(&tctx->sctx->pp_arena, sizeof(*idx));
-  *idx = tctx->sctx->opts->display_files.len - 1;
+  idx = ent->val = arena_malloc(tctx, &tctx->sctx->pp_arena, sizeof(*idx));
+  *idx = tctx->display_files.len - 1;
   return *idx;
 }
 
-File *new_file(SlimccTokenizeCtx *tctx, char *name, char *contents) {
+File *new_file(SlimccCtx *tctx, char *name, char *contents) {
   File *file = calloc(1, sizeof(File));
   file->name = name;
   file->file_no = file->display_file_no = add_display_file(tctx, name);

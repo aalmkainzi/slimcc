@@ -26,11 +26,11 @@ bool check_mem_usage(void) {
 #endif
 }
 
-static Pool *new_pool(void) {
+static Pool *new_pool(SlimccCtx *sctx) {
   Pool *p;
-  if (pool_freelist) {
-    p = pool_freelist;
-    pool_freelist = p->next;
+  if (sctx->pool_freelist) {
+    p = sctx->pool_freelist;
+    sctx->pool_freelist = p->next;
   } else {
     p = malloc(sizeof(Pool));
   }
@@ -42,7 +42,7 @@ static Pool *new_pool(void) {
   return p;
 }
 
-static void *allocate(Arena *arena, size_t sz, bool clear) {
+static void *allocate(SlimccCtx *sctx, Arena *arena, size_t sz, bool clear) {
   size_t aligned_sz = (sz + 15) & -16LL;
 
   void *ptr;
@@ -50,7 +50,7 @@ static void *allocate(Arena *arena, size_t sz, bool clear) {
     ptr = &arena->cur->buf[arena->used];
     arena->used += aligned_sz;
   } else {
-    arena->cur = arena->cur->next = new_pool();
+    arena->cur = arena->cur->next = new_pool(sctx);
     ptr = &arena->cur->buf;
     arena->used = aligned_sz;
   }
@@ -67,41 +67,41 @@ static void *allocate(Arena *arena, size_t sz, bool clear) {
   return ptr;
 }
 
-void arena_on(Arena *arena) {
-  arena->head = arena->cur = new_pool();
+void arena_on(SlimccCtx *sctx, Arena *arena) {
+  arena->head = arena->cur = new_pool(sctx);
   arena->used = 0;
 }
 
-void arena_off(Arena *arena) {
-  if (free_alloc) {
+void arena_off(SlimccCtx *sctx, Arena *arena) {
+  if (sctx->free_alloc) {
     for (Pool *p = arena->head; p;) {
       Pool *tmp = p;
       p = p->next;
       free(tmp);
     }
   } else {
-    arena->cur->next = pool_freelist;
-    pool_freelist = arena->head;
+    arena->cur->next = sctx->pool_freelist;
+    sctx->pool_freelist = arena->head;
   }
   arena->cur = NULL;
 }
 
-void *arena_malloc(Arena *a, size_t sz) {
-  return allocate(a, sz, false);
+void *arena_malloc(SlimccCtx *sctx, Arena *a, size_t sz) {
+  return allocate(sctx, a, sz, false);
 }
 
-void *arena_calloc(Arena *a, size_t sz) {
-  return allocate(a, sz, true);
+void *arena_calloc(SlimccCtx *sctx, Arena *a, size_t sz) {
+  return allocate(sctx, a, sz, true);
 }
 
-void *ast_arena_malloc(size_t sz) {
-  if (!ast_arena.cur)
+void *ast_arena_malloc(SlimccCtx *sctx, size_t sz) {
+  if (!sctx->ast_arena.cur)
     return malloc(sz);
-  return allocate(&ast_arena, sz, false);
+  return allocate(sctx, &sctx->ast_arena, sz, false);
 }
 
-void *ast_arena_calloc(size_t sz) {
-  if (!ast_arena.cur)
+void *ast_arena_calloc(SlimccCtx *sctx, size_t sz) {
+  if (!sctx->ast_arena.cur)
     return calloc(1, sz);
-  return allocate(&ast_arena, sz, true);
+  return allocate(sctx, &sctx->ast_arena, sz, true);
 }
