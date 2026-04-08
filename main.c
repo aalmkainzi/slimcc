@@ -444,7 +444,7 @@ bool ignore_missing_dep(SlimccCtx *opts, char *path, char *filename, Token *tok)
 
 struct SlimccReport;
 
-Obj *slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_data, struct SlimccReport *report)
+AST slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_data, struct SlimccReport *report)
 {
   SlimccCtx sctx = {
     .argv0 = argv[0], .opt_std = STD_C23,
@@ -464,7 +464,39 @@ Obj *slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_data, 
   
   Obj *prog = parse(&sctx, tok);
   
-  return prog;
+  AST ret = {.objects = prog};
+  
+  HashMap gtags_map = sctx.scope->tags;
+  Type **gtags = calloc(gtags_map.used, sizeof(Type*));
+  size_t gtags_count = 0;
+  for(size_t i = 0 ; i < gtags_map.used ; i++)
+  {
+    HashEntry ent = gtags_map.buckets[i];
+    if(ent.key != NULL && ent.key != (void*)-1)
+    {
+      gtags[gtags_count++] = ent.val;
+    }
+  }
+  
+  HashMap gvars_map = sctx.scope->vars;
+  VarScope **gvars = calloc(gvars_map.used, sizeof(VarScope*));
+  size_t gvars_count = 0;
+  for(size_t i = 0 ; i < gvars_map.used ; i++)
+  {
+    HashEntry ent = gvars_map.buckets[i];
+    if(ent.key != NULL && ent.key != (void*)-1)
+    {
+      gtags[gvars_count++] = ent.val;
+    }
+  }
+  
+  ret.gtags = gtags;
+  ret.gvars = gvars;
+  
+  ret.n_gtags = gtags_count;
+  ret.n_gvars = gvars_count;
+  
+  return ret;
 }
 
 bool file_exists(char *path) {

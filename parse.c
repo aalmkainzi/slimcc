@@ -1,13 +1,5 @@
 #include "slimcc.h"
 
-typedef struct {
-  Obj *var;
-  Type *type_def;
-  Type *enum_ty;
-  int64_t enum_val;
-  int32_t type_def_align;
-} VarScope;
-
 typedef enum {
   PCD_MUL,
   PCD_ADD,
@@ -5801,6 +5793,10 @@ Obj *parse(SlimccCtx *pctx, Token *tok) {
     VarAttr attr = {0};
     Type *basety = declspec(pctx, &tok, tok, &attr, SC_ALL);
 
+    if(attr.strg == SC_TYPEDEF)
+    {
+    }
+    
     if (attr.strg & SC_TYPEDEF) {
       parse_typedef(pctx, &tok, tok, basety, &attr);
       arena_off(pctx, &pctx->node_arena);
