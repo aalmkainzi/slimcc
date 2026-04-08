@@ -1,7 +1,6 @@
 #include <cgs/cgs.c>
 #include <stc/common.h>
 
-
 uint64_t sv_hash(const CGS_StrView *sv)
 {
     return c_hash_n(sv->chars, sv->len);

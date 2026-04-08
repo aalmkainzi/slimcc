@@ -5,7 +5,7 @@ typedef struct {
   Token *expanded;
 } MacroArg;
 
-typedef Token *macro_handler_fn(struct PPCtx*,Token *);
+typedef Token *macro_handler_fn(SlimccCtx*, Token*);
 
 typedef struct Macro Macro;
 struct Macro {

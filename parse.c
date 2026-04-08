@@ -1,25 +1,5 @@
 #include "slimcc.h"
 
-void error(char *fmt, ...) FMTCHK(1, 2) NORETURN;
-void error_ice(char *file, int32_t line) NORETURN;
-void error_at(SlimccTokenizeCtx *tctx, char *loc, char *fmt, ...) FMTCHK(3, 4) NORETURN;
-void error_tok(SlimccOptions *opts, Token *tok, char *fmt, ...) FMTCHK(3, 4) NORETURN;
-void warn_tok(SlimccOptions *opts, Token *tok, char *fmt, ...) FMTCHK(3, 4);
-void notice_tok(SlimccOptions *opts, Token *tok, char *fmt, ...) FMTCHK(3, 4);
-void verror_at_tok(SlimccOptions *opts, Token *tok, char *fmt, va_list ap);
-bool equal(Token *tok, char *op);
-bool equal_ext(Token *tok, char *op);
-Token *skip(SlimccOptions *opts, Token *tok, char *op);
-bool consume(Token **rest, Token *tok, char *str);
-Token *tokenize_file(SlimccTokenizeCtx *tctx, char *path, Token *tok, Token **end);
-File *new_file(SlimccTokenizeCtx *tctx, char *name, char *contents);
-int add_display_file(SlimccTokenizeCtx *tctx, char *path);
-void tokenize_string_literal(SlimccTokenizeCtx *tctx, Token *tok, Type *basety);
-Token *tokenize(SlimccTokenizeCtx *tctx, File *file, SlashDelta *delta, Token **end);
-void convert_pp_number(SlimccOptions *opts, Token *tok, Node *node);
-TokenKind ident_keyword(SlimccOptions *opts, Token *tok);
-void convert_ucn_ident(SlimccOptions *opts, Token *tok);
-
 typedef struct {
   Obj *var;
   Type *type_def;
@@ -168,19 +148,7 @@ typedef struct {
 } EvalContext;
 
 typedef struct JumpContext JumpContext;
-struct JumpContext {
-  JumpContext *next;
-  DeferStmt *dfr_lvl;
-  Token *dfr_ctx;
-  Token *labels;
-  Node *node;
-} *jump_ctx;
 
-struct {
-  int *data;
-  int capacity;
-  int cnt;
-} pack_stk;
 
 typedef struct FuncContext FuncContext;
 struct FuncContext {
@@ -921,7 +889,7 @@ static void cdtor_attr(ParseCtx *pctx, Token *loc, TokenKind kind, char *name, b
       int64_t val;
       if (get_attr_val(pctx, tok->next, &val))
         pri = MIN(val, 65535L) + 1;
-      apply_cdtor_attr(name, tok, is_cdtor, priority, pri, true);
+      apply_cdtor_attr(pctx->opts, name, tok, is_cdtor, priority, pri, true);
     }
   }
 }
@@ -948,8 +916,8 @@ static void str_attr(ParseCtx *pctx, Token *loc, TokenKind kind, char *name, cha
   for (Token *tok = loc->attr_next; tok; tok = tok->attr_next) {
     if (tok->kind == kind && equal_ext(tok, name)) {
       Token *t;
-      apply_str_attr(name, tok, str, str_tok(&t, skip(tok->next, "("))->str);
-      skip(t, ")");
+      apply_str_attr(pctx->opts, name, tok, str, str_tok(pctx->opts, &t, skip(pctx->opts, tok->next, "("))->str);
+      skip(pctx->opts, t, ")");
       return;
     }
   }
@@ -986,15 +954,15 @@ static void tyspec_attr(ParseCtx *pctx, Token *tok, VarAttr *attr, TokenKind kin
 
 static void symbol_attr(ParseCtx *pctx, Token *name, Token *tok, VarAttr *attr, Obj *var) {
   if (var->asm_name && (attr->strg & SC_REGISTER))
-    error_tok(tok, "global register variables not supported");
+    error_tok(pctx->opts, tok, "global register variables not supported");
 
-  apply_str_attr("alias", name, &var->alias_name, attr->alias);
+  apply_str_attr(pctx->opts, "alias", name, &var->alias_name, attr->alias);
   DeclAttr(str_attr, "alias", &var->alias_name);
 
-  apply_str_attr("section", name, &var->section_name, attr->section);
+  apply_str_attr(pctx->opts, "section", name, &var->section_name, attr->section);
   DeclAttr(str_attr, "section", &var->section_name);
 
-  apply_str_attr("visibility", name, &var->visibility, attr->visibility);
+  apply_str_attr(pctx->opts, "visibility", name, &var->visibility, attr->visibility);
   DeclAttr(str_attr, "visibility", &var->visibility);
 
   var->is_used |= attr->is_used;
@@ -1004,7 +972,7 @@ static void symbol_attr(ParseCtx *pctx, Token *name, Token *tok, VarAttr *attr, 
   DeclAttr(bool_attr, "weak", &var->is_weak);
 
   if (var->is_weak && var->is_static)
-    error_tok(name, "weak declaration cannot be `static`");
+    error_tok(pctx->opts, name, "weak declaration cannot be `static`");
 
   var->is_common |= attr->is_common;
   DeclAttr(bool_attr, "common", &var->is_common);
@@ -1013,15 +981,15 @@ static void symbol_attr(ParseCtx *pctx, Token *name, Token *tok, VarAttr *attr, 
   DeclAttr(bool_attr, "nocommon", &var->is_nocommon);
 
   if (var->is_common && var->is_nocommon)
-    error_tok(name, "conflict of attribute common/nocommon");
+    error_tok(pctx->opts, name, "conflict of attribute common/nocommon");
 }
 
 static void func_attr(ParseCtx *pctx, Token *name, Token *tok, VarAttr *attr, Obj *fn) {
-  apply_cdtor_attr("constructor", name, &fn->is_ctor, &fn->ctor_prior, attr->ctor_prior,
+  apply_cdtor_attr(pctx->opts, "constructor", name, &fn->is_ctor, &fn->ctor_prior, attr->ctor_prior,
                    attr->is_ctor);
   DeclAttr(cdtor_attr, "constructor", &fn->is_ctor, &fn->ctor_prior);
 
-  apply_cdtor_attr("destructor", name, &fn->is_dtor, &fn->dtor_prior, attr->dtor_prior,
+  apply_cdtor_attr(pctx->opts, "destructor", name, &fn->is_dtor, &fn->dtor_prior, attr->dtor_prior,
                    attr->is_dtor);
   DeclAttr(cdtor_attr, "destructor", &fn->is_dtor, &fn->dtor_prior);
 
@@ -1148,7 +1116,7 @@ static Type *declspec(ParseCtx *pctx, Token **rest, Token *tok, VarAttr *attr, S
       qual |= Q_CONST;
       continue;
     case TK_alignas: {
-      tok = skip(tok, "(");
+      tok = skip(pctx->opts, tok, "(");
       int align;
       if (is_typename(pctx, tok)) {
         VarAttr attr2 = {0};
@@ -1158,7 +1126,7 @@ static Type *declspec(ParseCtx *pctx, Token **rest, Token *tok, VarAttr *attr, S
         align = align_expr(pctx, &tok, tok);
       }
       attr->align = MAX(attr->align, align);
-      tok = skip(tok, ")");
+      tok = skip(pctx->opts, tok, ")");
       continue;
     }
     }
@@ -1171,9 +1139,9 @@ static Type *declspec(ParseCtx *pctx, Token **rest, Token *tok, VarAttr *attr, S
       qual |= Q_ATOMIC;
       if (consume(&tok, tok, "(")) {
         if (ty)
-          error_tok(tok, "invalid type");
+          error_tok(pctx->opts, tok, "invalid type");
         ty = typename(pctx, &tok, tok);
-        tok = skip(tok, ")");
+        tok = skip(pctx->opts, tok, ")");
         counter |= OTHER;
       }
       continue;
@@ -1207,10 +1175,10 @@ static Type *declspec(ParseCtx *pctx, Token **rest, Token *tok, VarAttr *attr, S
     case TK_unsigned: counter += UNSIGNED; break;
     case TK_BitInt:
       counter += BITINT;
-      ty = new_bitint(const_expr(pctx, &tok, skip(tok, "(")), tok);
-      tok = skip(tok, ")");
+      ty = new_bitint(const_expr(pctx, &tok, skip(pctx->opts, tok, "(")), tok);
+      tok = skip(pctx->opts, tok, ")");
       break;
-    default: error_tok(tok, "invalid type");
+    default: error_tok(pctx->opts, tok, "invalid type");
     }
 
     switch (counter) {
@@ -1248,13 +1216,13 @@ static Type *declspec(ParseCtx *pctx, Token **rest, Token *tok, VarAttr *attr, S
     case BITINT:
     case BITINT + SIGNED:              break;
     case BITINT + UNSIGNED:            ty->is_unsigned = true; break;
-    default:                           error_tok(tok, "invalid type");
+    default:                           error_tok(pctx->opts, tok, "invalid type");
     }
   }
   *rest = tok;
 
   if (chk_storage_class(attr->strg, ctx))
-    error_tok(tok, "invalid storage class");
+    error_tok(pctx->opts, tok, "invalid storage class");
 
   if (!ty) {
     if (pctx->opts->opt_std == STD_C89) {
@@ -1263,18 +1231,18 @@ static Type *declspec(ParseCtx *pctx, Token **rest, Token *tok, VarAttr *attr, S
       ty = new_type(TY_AUTO, -1, 0);
     } else {
       if (tok->kind == TK_IDENT)
-        error_tok(tok, "unknown type name");
-      error_tok(tok, "implicit int only supported under -std=c89");
+        error_tok(pctx->opts, tok, "unknown type name");
+      error_tok(pctx->opts, tok, "implicit int only supported under -std=c89");
     }
   }
 
   if (ty->kind == TY_AUTO)
     if (tok->kind != TK_IDENT || !equal(tok->next, "="))
-      error_tok(tok, "unsupported form for type inference");
+      error_tok(pctx->opts, tok, "unsupported form for type inference");
 
   if (ty->kind == TY_BITINT)
     if (ty->bit_cnt < (1 + !ty->is_unsigned))
-      error_tok(tok, "invalid bit width for _BitInt");
+      error_tok(pctx->opts, tok, "invalid bit width for _BitInt");
 
   return qual_type(qual, ty, tok);
 }
@@ -1294,7 +1262,7 @@ static Type *func_params(ParseCtx *pctx, Token **rest, Token *tok, Type *rtn_ty,
       fn_ty->is_oldstyle = true;
     return fn_ty;
   }
-  bool is_def = end && is_func_def(pctx, *end ? *end : skip_paren(tok));
+  bool is_def = end && is_func_def(pctx, *end ? *end : skip_paren(pctx->opts, tok));
 
   if (!is_typename(pctx, tok)) {
     fn_ty->is_oldstyle = true;
@@ -1302,16 +1270,16 @@ static Type *func_params(ParseCtx *pctx, Token **rest, Token *tok, Type *rtn_ty,
     Token *start = tok;
     if (!is_def) {
       while (comma_list(pctx->opts, rest, &tok, ")", tok != start))
-        ident_tok(&tok, tok);
+        ident_tok(pctx->opts, &tok, tok);
       return fn_ty;
     }
     enter_fn_scope(pctx, fn_ty);
 
     Obj head = {0};
     Obj *cur = &head;
-    while (comma_list(rest, &tok, ")", tok != start)) {
-      Token *name = ident_tok(&tok, tok);
-      cur = cur->param_next = new_param(pctx, get_ident(name), NULL);
+    while (comma_list(pctx->opts, rest, &tok, ")", tok != start)) {
+      Token *name = ident_tok(pctx->opts, &tok, tok);
+      cur = cur->param_next = new_param(pctx, get_ident(pctx->opts, name), NULL);
     }
     fn_ty->param_list = head.param_next;
     leave_scope(pctx);
@@ -1324,10 +1292,10 @@ static Type *func_params(ParseCtx *pctx, Token **rest, Token *tok, Type *rtn_ty,
   Obj *cur = &head;
   Node *expr = NULL;
 
-  while (comma_list(rest, &tok, ")", cur != &head)) {
+  while (comma_list(pctx->opts, rest, &tok, ")", cur != &head)) {
     if (equal(tok, "...")) {
       fn_ty->is_variadic = true;
-      *rest = skip(tok->next, ")");
+      *rest = skip(pctx->opts, tok->next, ")");
       break;
     }
     VarAttr attr = {0};
@@ -1344,7 +1312,7 @@ static Type *func_params(ParseCtx *pctx, Token **rest, Token *tok, Type *rtn_ty,
       param_ty = qual_type(ty->param_qual, param_ty, tok);
 
     if (param_ty->kind == TY_VOID)
-      error_tok(tok, "parameter declared void");
+      error_tok(pctx->opts, tok, "parameter declared void");
     cur = cur->param_next = new_param(pctx, NULL, param_ty);
     if (name)
       push_var_name(pctx, name, cur);
@@ -1361,22 +1329,22 @@ static Type *array_dimensions(ParseCtx *pctx, Token **rest, Token *tok, Type *ty
     expr = NULL;
   } else if (equal(tok, "*") && equal(tok->next, "]")) {
     if (!ctx->let_star)
-      error_tok(tok, "`[*]` not allowed here");
+      error_tok(pctx->opts, tok, "`[*]` not allowed here");
     expr = new_unknown(pctx->slimcc_ctx, ty_size_t, tok);
     tok = tok->next->next;
   } else {
     expr = assign(pctx, &tok, tok);
     add_type(pctx->opts, expr);
     if (!is_integer(expr->ty))
-      error_tok(tok, "size of array not integer");
-    tok = skip(tok, "]");
+      error_tok(pctx->opts, tok, "size of array not integer");
+    tok = skip(pctx->opts, tok, "]");
   }
 
   if (equal(tok, "["))
     ty = array_dimensions(pctx, &tok, tok->next, ty, ctx);
 
   if (ty->size < 0 || ty->kind == TY_VOID || ty->kind == TY_FUNC)
-    error_tok(tok, "invalid array element type");
+    error_tok(pctx->opts, tok, "invalid array element type");
 
   *rest = tok;
   if (!expr)
@@ -1385,13 +1353,13 @@ static Type *array_dimensions(ParseCtx *pctx, Token **rest, Token *tok, Type *ty
   int64_t array_len;
   if (is_const_expr(pctx, expr, &array_len)) {
     if (array_len < 0)
-      error_tok(expr->tok, "size of array is negative");
+      error_tok(pctx->opts, expr->tok, "size of array is negative");
     if (ty->kind == TY_VLA)
       return vla_of(pctx->opts, ty, NULL, array_len);
     return array_of(ty, array_len);
   }
   if (is_const_context(pctx))
-    error_tok(tok, "variably-modified type in constant context");
+    error_tok(pctx->opts, tok, "variably-modified type in constant context");
   return vla_of(pctx->opts, ty, expr, 0);
 }
 
@@ -1430,7 +1398,7 @@ static Type *type_suffix(ParseCtx *pctx, Token **rest, Token *tok, Type *ty, Dec
 
     if (ctx->is_param) {
       if (has_static && ty2->array_len < 0)
-        error_tok(tok, "'static' requires an array size");
+        error_tok(pctx->opts, tok, "'static' requires an array size");
       ty2->param_qual = qual;
     }
     return ty2;
@@ -1448,7 +1416,7 @@ static Type *pointers(Token **rest, Token *tok, Type *ty) {
   return ty;
 }
 
-Token *skip_paren(Token *tok) {
+Token *skip_paren(SlimccOptions *opts, Token *tok) {
   int level = 0;
   Token *start = tok;
   for (;;) {
@@ -1456,7 +1424,7 @@ Token *skip_paren(Token *tok) {
       break;
 
     if (tok->kind == TK_EOF)
-      error_tok(start, "unterminated list");
+      error_tok(opts, start, "unterminated list");
 
     if (equal(tok, "("))
       level++;
@@ -1476,7 +1444,7 @@ static Type *declarator2(ParseCtx *pctx, Token **rest, Token *tok, Type *ty, Tok
     if (is_typename(pctx, tok) || equal(tok, "...") || equal(tok, ")"))
       return func_params(pctx, rest, tok, ty, NULL);
 
-    ty = type_suffix(pctx, rest, skip_paren(tok), ty, ctx);
+    ty = type_suffix(pctx, rest, skip_paren(pctx->opts, tok), ty, ctx);
     if (ctx->is_glob) {
       ctx->is_glob = false;
       ctx->end = *rest;
@@ -1521,10 +1489,10 @@ static bool chk_enum_tag(ParseCtx *pctx, Type *tag_ty, Type *fixed_ty, Token *ta
   if (!tag_ty)
     return false;
   if (tag_ty->kind == TY_STRUCT || tag_ty->kind == TY_UNION)
-    error_tok(tag, "not an enum tag");
+    error_tok(pctx->opts, tag, "not an enum tag");
   if (fixed_ty &&
       (fixed_ty->kind != tag_ty->kind || fixed_ty->is_unsigned != tag_ty->is_unsigned))
-    error_tok(tag, "enum redeclared with incompatible type");
+    error_tok(pctx->opts, tag, "enum redeclared with incompatible type");
   return true;
 }
 
@@ -1544,9 +1512,9 @@ static Type *enum_specifier(ParseCtx *pctx, Token **rest, Token *tok) {
     ty = typename(pctx, &tok, tok);
 
     if (!is_integer(ty))
-      error_tok(tok, "underlying type not integer");
+      error_tok(pctx->opts, tok, "underlying type not integer");
     if (!equal(tok, "{"))
-      skip(tok, ";");
+      skip(pctx->opts, tok, ";");
   }
   if (tag && !equal(tok, "{")) {
     *rest = tok;
@@ -1559,7 +1527,7 @@ static Type *enum_specifier(ParseCtx *pctx, Token **rest, Token *tok) {
     push_tag_scope(pctx, tag, ty);
     return ty;
   }
-  tok = skip(tok, "{");
+  tok = skip(pctx->opts, tok, "{");
 
   EnumVal *tag_enums = NULL;
   int64_t tag_enum_cnt = 0;
@@ -1572,7 +1540,7 @@ static Type *enum_specifier(ParseCtx *pctx, Token **rest, Token *tok) {
   if (chk_enum_tag(pctx, tag_ty, ty, tag)) {
     if (pctx->opts->opt_std < STD_C23) {
       if (!ty && tag_ty->kind != TY_ENUM)
-        error_tok(tag, "enum redeclaration");
+        error_tok(pctx->opts, tag, "enum redeclaration");
     } else {
       tag_enums = tag_ty->enums;
       for (EnumVal *ev = tag_enums; ev; ev = ev->next)
@@ -1595,12 +1563,12 @@ static Type *enum_specifier(ParseCtx *pctx, Token **rest, Token *tok) {
   bool is_neg = false;
   bool is_ovf = false;
   bool first = true;
-  for (; comma_list(&tok, &tok, "}", !first); first = false) {
-    Token *name = ident_tok(&tok, tok);
+  for (; comma_list(pctx->opts, &tok, &tok, "}", !first); first = false) {
+    Token *name = ident_tok(pctx->opts, &tok, tok);
 
     if (!consume(&tok, tok, "=")) {
       if (is_ovf)
-        error_tok(tok, "enum value overflowed");
+        error_tok(pctx->opts, tok, "enum value overflowed");
     } else {
       Type *val_ty = NULL;
       val = const_expr2(pctx, &tok, tok, &val_ty);
@@ -1645,11 +1613,11 @@ static Type *enum_specifier(ParseCtx *pctx, Token **rest, Token *tok) {
     if (vsc) {
       if (pctx->opts->opt_std >= STD_C23 && tag_enum_cnt && vsc->enum_ty) {
         if (vsc->enum_val != v)
-          error_tok(tok, "enum redeclared with conflicting value");
+          error_tok(pctx->opts, tok, "enum redeclared with conflicting value");
         decl_enum_cnt++;
         continue;
       }
-      error_tok(name, "enum redeclaration");
+      error_tok(pctx->opts, name, "enum redeclaration");
     } else {
       if (pctx->opts->opt_std >= STD_C23) {
         cur = cur->next = malloc(sizeof(EnumVal));
@@ -1663,7 +1631,7 @@ static Type *enum_specifier(ParseCtx *pctx, Token **rest, Token *tok) {
     }
   }
   if (first)
-    error_tok(tok, "empty enum specifier");
+    error_tok(pctx->opts, tok, "empty enum specifier");
 
   bool_attr(pctx, tok, TK_ATTR, "packed", &is_packed);
   *rest = tok;
@@ -1671,7 +1639,7 @@ static Type *enum_specifier(ParseCtx *pctx, Token **rest, Token *tok) {
   if (pctx->opts->opt_std >= STD_C23) {
     if (tag_enum_cnt) {
       if (tag_enum_cnt != decl_enum_cnt)
-        error_tok(tag, "enum redeclared with conflicting value");
+        error_tok(pctx->opts, tag, "enum redeclared with conflicting value");
       return ty;
     }
     cur->next = NULL;
@@ -1682,7 +1650,7 @@ static Type *enum_specifier(ParseCtx *pctx, Token **rest, Token *tok) {
     if ((ty->is_unsigned && been_neg) ||
         (ty->size < enum_ty[ety]->size) ||
         ((ty->size == enum_ty[ety]->size) && (ty->is_unsigned < enum_ty[ety]->is_unsigned)))
-      error_tok(tok, "enum value out of type range");
+      error_tok(pctx->opts, tok, "enum value out of type range");
     return ty;
   }
 
@@ -1693,7 +1661,7 @@ static Type *enum_specifier(ParseCtx *pctx, Token **rest, Token *tok) {
   if ((been_neg && (ety & 1)) || (!been_neg && !(ety & 1))) {
     ety++;
     if (ety > ETY_U64)
-      error_tok(tok, "unsupported enum value range");
+      error_tok(pctx->opts, tok, "unsupported enum value range");
   }
 
   Type *base_ty = enum_ty[ety];
@@ -1708,7 +1676,7 @@ static Type *enum_specifier(ParseCtx *pctx, Token **rest, Token *tok) {
 }
 
 static Type *typeof_specifier(ParseCtx *pctx, Token **rest, Token *tok, VarAttr *attr) {
-  tok = skip(tok, "(");
+  tok = skip(pctx->opts, tok, "(");
 
   Type *ty;
   if (is_typename(pctx, tok)) {
@@ -1722,7 +1690,7 @@ static Type *typeof_specifier(ParseCtx *pctx, Token **rest, Token *tok, VarAttr 
     if (is_vm_ty(ty))
       attr->typeof_vm_expr = node;
   }
-  *rest = skip(tok, ")");
+  *rest = skip(pctx->opts, tok, ")");
   return ty;
 }
 
@@ -1780,21 +1748,21 @@ static Node *declaration2(ParseCtx *pctx, Token **rest, Token *tok, Type *basety
   }
 
   if (ty->kind == TY_VOID)
-    error_tok(tok, "variable declared void");
+    error_tok(pctx->opts, tok, "variable declared void");
   if (!name)
-    error_tok(tok, "variable name omitted");
+    error_tok(pctx->opts, tok, "variable name omitted");
 
   Node *expr = calc_vla(pctx, ty, tok);
 
   if (attr->strg & SC_STATIC) {
     if (ty->kind == TY_VLA)
-      error_tok(tok, "variable length arrays cannot be 'static'");
+      error_tok(pctx->opts, tok, "variable length arrays cannot be 'static'");
 
     Obj *var = new_static_lvar(pctx, ty);
     push_var_name(pctx, name, var);
 
     var->is_tls = attr->strg & SC_THREAD;
-    assembler_name(&tok, tok, var);
+    assembler_name(pctx->opts, &tok, tok, var);
     aligned_attr(pctx, name, tok, attr, &var->alt_align);
     symbol_attr(pctx, name, tok, attr, var);
 
@@ -1825,7 +1793,7 @@ static Node *declaration2(ParseCtx *pctx, Token **rest, Token *tok, Type *basety
     cleanup_attr(pctx, name, tok, attr, var);
 
     if (equal(tok, "=")) {
-      tok = skip(skip(tok->next, "{"), "}");
+      tok = skip(pctx->opts, skip(pctx->opts, tok->next, "{"), "}");
       node->kind = ND_ALLOCA_ZINIT;
       *cond_var = var;
     }
@@ -1834,13 +1802,13 @@ static Node *declaration2(ParseCtx *pctx, Token **rest, Token *tok, Type *basety
     return expr;
   }
 
-  assembler_name(&tok, tok, var);
+  assembler_name(pctx->opts, &tok, tok, var);
   aligned_attr(pctx, name, tok, attr, &var->alt_align);
   cleanup_attr(pctx, name, tok, attr, var);
 
   if (attr->strg & SC_CONSTEXPR) {
     Obj *init_var = new_static_lvar(pctx, ty);
-    constexpr_initializer(pctx, &tok, skip(tok, "="), init_var, var);
+    constexpr_initializer(pctx, &tok, skip(pctx->opts, tok, "="), init_var, var);
     chain_expr(pctx->slimcc_ctx, &expr, new_binary(pctx->slimcc_ctx, ND_ASSIGN, new_var_node(pctx->slimcc_ctx, var, tok),
                                  new_var_node(pctx->slimcc_ctx, init_var, tok), tok));
     *cond_var = var;
@@ -1852,9 +1820,9 @@ static Node *declaration2(ParseCtx *pctx, Token **rest, Token *tok, Type *basety
     *cond_var = var;
   }
   if (var->ty->size < 0)
-    error_tok(name, "variable has incomplete type");
+    error_tok(pctx->opts, name, "variable has incomplete type");
   if (var->ty->kind == TY_VOID)
-    error_tok(name, "variable declared void");
+    error_tok(pctx->opts, name, "variable declared void");
   *rest = tok;
   return expr;
 }
@@ -1865,7 +1833,7 @@ static Node *cond_declaration(ParseCtx *pctx, Token **rest, Token *tok, char *st
   for (;; clause++) {
     if (!is_typename(pctx, tok)) {
       chain_expr(pctx->slimcc_ctx, &n, expression(pctx, &tok, tok));
-      *rest = skip(tok, stopper);
+      *rest = skip(pctx->opts, tok, stopper);
       return n;
     }
 
@@ -1897,10 +1865,10 @@ static Node *cond_declaration(ParseCtx *pctx, Token **rest, Token *tok, char *st
       continue;
 
     if (!var)
-      error_tok(tok, "invalid condition");
+      error_tok(pctx->opts, tok, "invalid condition");
 
     chain_expr(pctx->slimcc_ctx, &n, new_var_node(pctx->slimcc_ctx, var, tok));
-    *rest = skip(tok, stopper);
+    *rest = skip(pctx->opts, tok, stopper);
     return n;
   }
 }
@@ -1921,7 +1889,7 @@ static Node *declaration(ParseCtx *pctx, Token **rest, Token *tok) {
     return expr;
   }
 
-  for (bool first = true; comma_list(rest, &tok, ";", !first); first = false)
+  for (bool first = true; comma_list(pctx->opts, rest, &tok, ";", !first); first = false)
     chain_expr(pctx->slimcc_ctx, &expr, declaration2(pctx, &tok, tok, basety, &attr, &(Obj *){0}));
 
   return expr;
@@ -1930,7 +1898,7 @@ static Node *declaration(ParseCtx *pctx, Token **rest, Token *tok) {
 static Token *skip_excess_element(ParseCtx *pctx, Token *tok) {
   if (equal(tok, "{")) {
     tok = skip_excess_element(pctx, tok->next);
-    return skip(tok, "}");
+    return skip(pctx->opts, tok, "}");
   }
 
   assign(pctx, &tok, tok);
@@ -1939,7 +1907,7 @@ static Token *skip_excess_element(ParseCtx *pctx, Token *tok) {
 
 static void string_initializer(ParseCtx *pctx, Token *tok, Initializer *init) {
   if (tok->ty->base->size != init->ty->base->size)
-    error_tok(tok, "array initialization with string of incompatible size");
+    error_tok(pctx->opts, tok, "array initialization with string of incompatible size");
 
   if (init->kind == INIT_FLEX)
     init->ty = array_of(init->ty->base, tok->ty->array_len);
@@ -1952,28 +1920,28 @@ static void array_designator(ParseCtx *pctx, Token **rest, Token *tok, Type *ty,
   *begin = const_expr(pctx, &tok, tok->next);
 
   if (*begin >= ty->array_len)
-    error_tok(tok, "array designator index exceeds array bounds");
+    error_tok(pctx->opts, tok, "array designator index exceeds array bounds");
 
   if (equal(tok, "...")) {
     *end = const_expr(pctx, &tok, tok->next);
     if (*end >= ty->array_len)
-      error_tok(tok, "array designator index exceeds array bounds");
+      error_tok(pctx->opts, tok, "array designator index exceeds array bounds");
     if (*end < *begin)
-      error_tok(tok, "array designator range [%d, %d] is empty", *begin, *end);
+      error_tok(pctx->opts, tok, "array designator range [%d, %d] is empty", *begin, *end);
   } else {
     *end = *begin;
   }
 
-  *rest = skip(tok, "]");
+  *rest = skip(pctx->opts, tok, "]");
 }
 
 static Member *struct_designator(ParseCtx *pctx, Token **rest, Token *tok, Type *ty) {
   if (tok->kind != TK_IDENT)
-    error_tok(tok, "expected a field designator");
+    error_tok(pctx->opts, tok, "expected a field designator");
 
   Member *mem = get_struct_member(pctx, ty, tok);
   if (!mem)
-    error_tok(tok, "struct has no such member");
+    error_tok(pctx->opts, tok, "struct has no such member");
   if (mem->name)
     *rest = tok->next;
   return mem;
@@ -1983,7 +1951,7 @@ static void designation(ParseCtx *pctx, Token **rest, Token *tok, Initializer *i
                         DesgContext *ctx) {
   if (equal(tok, "[")) {
     if (init->ty->kind != TY_ARRAY)
-      error_tok(tok, "array index not in array initializer");
+      error_tok(pctx->opts, tok, "array index not in array initializer");
 
     int begin, end;
     array_designator(pctx, &tok, tok, init->ty, &begin, &end);
@@ -2024,7 +1992,7 @@ static void designation(ParseCtx *pctx, Token **rest, Token *tok, Initializer *i
 
   if (equal(tok, ".")) {
     if (!(init->ty->kind == TY_STRUCT || init->ty->kind == TY_UNION))
-      error_tok(tok, "field designator not in struct or union initializer");
+      error_tok(pctx->opts, tok, "field designator not in struct or union initializer");
 
     Member *mem = struct_designator(pctx, &tok, tok->next, init->ty);
     prepare_struct_init(pctx, init, init->ty);
@@ -2042,7 +2010,7 @@ static void designation(ParseCtx *pctx, Token **rest, Token *tok, Initializer *i
   if (post_bracket)
     consume(&tok, tok, "=");
   else
-    tok = skip(tok, "=");
+    tok = skip(pctx->opts, tok, "=");
 
   initializer2(pctx, rest, tok, init);
 }
@@ -2052,12 +2020,12 @@ static int count_array_init_elements(ParseCtx *pctx, Token *tok, Type *ty, int i
 
   Initializer dummy = {.ty = ty->base};
   int max = i;
-  while (comma_list(&tok, &tok, "}", i)) {
+  while (comma_list(pctx->opts, &tok, &tok, "}", i)) {
     if (equal(tok, "[")) {
       i = const_expr(pctx, &tok, tok->next);
       if (equal(tok, "..."))
         i = const_expr(pctx, &tok, tok->next);
-      tok = skip(tok, "]");
+      tok = skip(pctx->opts, tok, "]");
       designation(pctx, &tok, tok, &dummy, true, NULL);
     } else {
       initializer2(pctx, &tok, tok, &dummy);
@@ -2074,7 +2042,7 @@ static int count_array_init_elements(ParseCtx *pctx, Token *tok, Type *ty, int i
 static void aggregate_initializer(ParseCtx *pctx, Token **rest, Token *tok, Initializer *init, Node *expr,
                                   bool has_brace) {
   if (!has_brace && init->is_root)
-    error_tok(tok, "expected initializer list");
+    error_tok(pctx->opts, tok, "expected initializer list");
 
   Token *start;
   if (!expr) {
@@ -2091,7 +2059,7 @@ static void aggregate_initializer(ParseCtx *pctx, Token **rest, Token *tok, Init
   }
 
   if (has_brace) {
-    while (comma_list(&tok, &tok, "}", start != tok)) {
+    while (comma_list(pctx->opts, &tok, &tok, "}", start != tok)) {
       if (equal(tok, ".") || equal(tok, "[")) {
         designation(pctx, &tok, tok, init, false, NULL);
         continue;
@@ -2104,7 +2072,7 @@ static void aggregate_initializer(ParseCtx *pctx, Token **rest, Token *tok, Init
 
 static void list_initializer(ParseCtx *pctx, Token **rest, Token *tok, Initializer *init, int idx) {
   for (; idx < init->list.cnt && !equal(tok, "}"); idx++) {
-    Token *tok2 = (idx == 0) ? tok : skip(tok, ",");
+    Token *tok2 = (idx == 0) ? tok : skip(pctx->opts, tok, ",");
 
     if (equal(tok2, "}") || equal(tok2, "[") || equal(tok2, "."))
       break;
@@ -2149,7 +2117,7 @@ static void initializer3(ParseCtx *pctx, Token **rest, Token *tok, Initializer *
 
   if (init->ty->kind == TY_ARRAY) {
     if (init->kind == INIT_FLEX_NESTED)
-      error_tok(tok, "nested initialization of flexible array member");
+      error_tok(pctx->opts, tok, "nested initialization of flexible array member");
 
     if (has_brace && init->kind != INIT_FLEX)
       set_init(init, INIT_NONE);
@@ -2174,7 +2142,7 @@ static void initializer3(ParseCtx *pctx, Token **rest, Token *tok, Initializer *
         expr = assign(pctx, &tok, tok);
       if (expr->kind == ND_VAR && expr->m.var->is_string_lit) {
         string_initializer(pctx, expr->tok, init);
-        *rest = has_brace ? (consume(&tok, tok, ","), skip(tok, "}")) : tok;
+        *rest = has_brace ? (consume(&tok, tok, ","), skip(pctx->opts, tok, "}")) : tok;
         return;
       }
     }
@@ -2222,9 +2190,9 @@ static void initializer3(ParseCtx *pctx, Token **rest, Token *tok, Initializer *
     init->expr = expr ? expr : assign(pctx, &tok, tok);
 
     while (cnt--)
-      tok = skip(tok, "}");
+      tok = skip(pctx->opts, tok, "}");
   }
-  *rest = has_brace ? (consume(&tok, tok, ","), skip(tok, "}")) : tok;
+  *rest = has_brace ? (consume(&tok, tok, ","), skip(pctx->opts, tok, "}")) : tok;
 }
 
 static void initializer2(ParseCtx *pctx, Token **rest, Token *tok, Initializer *init) {
@@ -2278,7 +2246,7 @@ static Node *init_desg_expr(ParseCtx *pctx, InitDesg *desg, Token *tok) {
 
 static Node *init_num_tok(ParseCtx *pctx, Initializer *init, Node *node) {
   if (init->kind == INIT_TOK) {
-    convert_pp_number(init->tok, node);
+    convert_pp_number(pctx->opts, init->tok, node);
     return node;
   }
   add_type(pctx->opts, init->expr);
@@ -2438,7 +2406,7 @@ static void write_gvar_data(ParseCtx *pctx, Relocation **cur, Initializer *init,
     node = assign_cast(pctx->opts, init->ty, node);
 
     if (init->ty->kind == TY_ARRAY)
-      error_tok(node->tok, "array initializer must be an initializer list");
+      error_tok(pctx->opts, node->tok, "array initializer must be an initializer list");
 
     // Direct initialization with a const variable
     if (init->kind == INIT_EXPR) {
@@ -2506,7 +2474,7 @@ static void write_gvar_data(ParseCtx *pctx, Relocation **cur, Initializer *init,
       return;
     }
 
-    error_tok(node->tok, "invalid initializer");
+    error_tok(pctx->opts, node->tok, "invalid initializer");
   }
   case INIT_STR_ARRAY: {
     size_t len = MIN(init->ty->array_len, init->tok->ty->array_len);
@@ -2517,7 +2485,7 @@ static void write_gvar_data(ParseCtx *pctx, Relocation **cur, Initializer *init,
     Initializer tmp = {.kind = INIT_TOK, .ty = init->ty->base};
     int sz = init->ty->base->size;
     int64_t cnt = 0;
-    for (Token *t = init->numseq.start; comma_list(&t, &t, "}", cnt); t = t->next) {
+    for (Token *t = init->numseq.start; comma_list(pctx->opts, &t, &t, "}", cnt); t = t->next) {
       if (cnt >= init->ty->array_len)
         break;
       tmp.tok = t;
@@ -2601,7 +2569,7 @@ static void gvar_initializer(ParseCtx *pctx, Token **rest, Token *tok, Obj *var)
   initializer(pctx, rest, tok, &init, var);
 
   if (var->ty->size < 0)
-    error_tok(tok, "variable has incomplete type");
+    error_tok(pctx->opts, tok, "variable has incomplete type");
 
   Relocation head = {0};
   char *buf = calloc(1, var->ty->size);
@@ -2650,25 +2618,25 @@ static bool is_typename(ParseCtx *pctx, Token *tok) {
 }
 
 static bool is_typename_paren(ParseCtx *pctx, Token **rest, Token *tok, Type **ty, VarAttr *attr) {
-  if (equal(tok, "(") && is_typename(pctx, tok->next) && !equal(skip_paren(tok->next->next), "{")) {
+  if (equal(tok, "(") && is_typename(pctx, tok->next) && !equal(skip_paren(pctx->opts, tok->next->next), "{")) {
     *ty = typename2(pctx, &tok, tok->next, attr);
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
     return true;
   }
   return false;
 }
 
 static void eval_static_assert(ParseCtx *pctx, Token **rest, Token *tok) {
-  int64_t result = const_expr(pctx, &tok, skip(tok, "("));
+  int64_t result = const_expr(pctx, &tok, skip(pctx->opts, tok, "("));
   if (!result)
-    error_tok(tok, "static assertion failed");
+    error_tok(pctx->opts, tok, "static assertion failed");
 
   if (equal(tok, ",")) {
     if (tok->next->kind != TK_STR)
-      error_tok(tok, "expected string literal");
+      error_tok(pctx->opts, tok, "expected string literal");
     tok = tok->next->next;
   }
-  *rest = skip(tok, ")");
+  *rest = skip(pctx->opts, tok, ")");
 }
 
 static AsmParam *asm_params(ParseCtx *pctx, Token **rest, Token *tok) {
@@ -2677,17 +2645,17 @@ static AsmParam *asm_params(ParseCtx *pctx, Token **rest, Token *tok) {
 
   while (!equal(tok, ":") && !equal(tok, "::") && !equal(tok, ")")) {
     if (cur != &head)
-      tok = skip(tok, ",");
+      tok = skip(pctx->opts, tok, ",");
 
     cur = cur->next = ast_arena_calloc(sizeof(AsmParam));
 
     if (consume(&tok, tok, "[")) {
       cur->name = tok;
-      tok = skip(tok->next, "]");
+      tok = skip(pctx->opts, tok->next, "]");
     }
-    cur->constraint = str_tok(&tok, tok);
-    cur->arg = expression(pctx, &tok, skip(tok, "("));
-    tok = skip(tok, ")");
+    cur->constraint = str_tok(pctx->opts, &tok, tok);
+    cur->arg = expression(pctx, &tok, skip(pctx->opts, tok, "("));
+    tok = skip(pctx->opts, tok, ")");
   }
   *rest = tok;
   return head.next;
@@ -2698,11 +2666,11 @@ static Token *asm_clobbers(ParseCtx *pctx, Token **rest, Token *tok) {
 
   while (!equal(tok, ":") && !equal(tok, "::") && !equal(tok, ")")) {
     if (!first) {
-      first = str_tok(&tok, tok);
+      first = str_tok(pctx->opts, &tok, tok);
       continue;
     }
-    tok = skip(tok, ",");
-    str_tok(&tok, tok);
+    tok = skip(pctx->opts, tok, ",");
+    str_tok(pctx->opts, &tok, tok);
   }
   *rest = tok;
   return first;
@@ -2714,9 +2682,9 @@ static AsmParam *asm_labels(ParseCtx *pctx, Token **rest, Token *tok) {
 
   while (!equal(tok, ")")) {
     if (cur != &head)
-      tok = skip(tok, ",");
+      tok = skip(pctx->opts, tok, ",");
 
-    Node *node = new_node(pctx->slimcc_ctx, ND_GOTO, ident_tok(&tok, tok));
+    Node *node = new_node(pctx->slimcc_ctx, ND_GOTO, ident_tok(pctx->opts, &tok, tok));
     push_goto(pctx, node);
     cur = cur->next = ast_arena_calloc(sizeof(AsmParam));
     cur->arg = node;
@@ -2740,7 +2708,7 @@ static Node *asm_stmt(ParseCtx *pctx, Token **rest, Token *tok) {
     }
     break;
   }
-  node->gasm.str_tok = str_tok(&tok, skip(tok, "("));
+  node->gasm.str_tok = str_tok(pctx->opts, &tok, skip(pctx->opts, tok, "("));
 
   for (int progress = 0;;) {
     Token *start = tok;
@@ -2763,7 +2731,7 @@ static Node *asm_stmt(ParseCtx *pctx, Token **rest, Token *tok) {
         }
       }
     }
-    *rest = skip(start, ")");
+    *rest = skip(pctx->opts, start, ")");
     return node;
   }
 }
@@ -2803,14 +2771,14 @@ static void case_range(ParseCtx *pctx, Token **rest, Token *tok, Node *sw, Node 
       lo = (uint32_t)lo, hi = (uint32_t)hi;
   }
   if (hi != lo && less_eq(ty, hi, lo))
-    error_tok(tok, "empty case range specified");
+    error_tok(pctx->opts, tok, "empty case range specified");
 
   for (CaseRange *cr = sw->ctrl.sw_cases; cr; cr = cr->next)
     if ((less_eq(ty, cr->lo, lo) && less_eq(ty, lo, cr->hi)) ||
         (less_eq(ty, lo, cr->lo) && less_eq(ty, cr->lo, hi)))
-      error_tok(tok, "duplicated case");
+      error_tok(pctx->opts, tok, "duplicated case");
 
-  *rest = skip(tok, ":");
+  *rest = skip(pctx->opts, tok, ":");
 
   CaseRange *cr = ast_arena_malloc(sizeof(CaseRange));
   cr->label = case_node;
@@ -2840,7 +2808,7 @@ static Token *label_stmt(ParseCtx *pctx, Token **rest, Token *tok, Node **stmt) 
 
       if (ll) {
         if (ll->label)
-          error_tok(tok, "duplicated label");
+          error_tok(pctx->opts, tok, "duplicated label");
         (*stmt) = (*stmt)->next = ll->label = new_label(pctx, tok);
         continue;
       }
@@ -2863,18 +2831,18 @@ static Token *label_stmt(ParseCtx *pctx, Token **rest, Token *tok, Node **stmt) 
           if (ctx->node->kind == ND_SWITCH)
             break;
         if (!ctx)
-          error_tok(tok, "stray case");
+          error_tok(pctx->opts, tok, "stray case");
         if (jump_ctx->dfr_lvl != pctx->fnctx->defr || jump_ctx->dfr_ctx != pctx->fnctx->defr_ctx)
-          error_tok(tok, "illegal jump");
+          error_tok(pctx->opts, tok, "illegal jump");
         active_sw = ctx->node;
       }
 
       if (tok->kind == TK_default) {
         if (active_sw->ctrl.sw_default)
-          error_tok(tok, "duplicated default");
+          error_tok(pctx->opts, tok, "duplicated default");
 
         active_sw->ctrl.sw_default = case_node;
-        tok = skip(tok->next, ":");
+        tok = skip(pctx->opts, tok->next, ":");
         continue;
       }
 
@@ -2925,7 +2893,7 @@ static JumpContext *resolve_labeled_jump(ParseCtx *pctx, Token **rest, Token *to
   Token *name = NULL;
   if (tok->next->kind == TK_IDENT)
     name = tok = tok->next;
-  *rest = skip(tok->next, ";");
+  *rest = skip(pctx->opts, tok->next, ";");
 
   for (JumpContext *ctx = jump_ctx; ctx; ctx = ctx->next) {
     if (is_cont && ctx->node->kind == ND_SWITCH)
@@ -2936,13 +2904,13 @@ static JumpContext *resolve_labeled_jump(ParseCtx *pctx, Token **rest, Token *to
       if (equal_tok(t, name))
         return ctx;
   }
-  error_tok(tok, "cannot resolve jump");
+  error_tok(pctx->opts, tok, "cannot resolve jump");
 }
 
 static Node *stmt(ParseCtx *pctx, Token **rest, Token *tok, Token *label_list) {
   if (tok->kind == TK_return) {
     if (pctx->fnctx->defr_ctx)
-      error_tok(tok, "return in defer block");
+      error_tok(pctx->opts, tok, "return in defer block");
 
     Node *node = new_node(pctx->slimcc_ctx, ND_RETURN, tok);
     node->dfr_from = pctx->fnctx->defr;
@@ -2953,7 +2921,7 @@ static Node *stmt(ParseCtx *pctx, Token **rest, Token *tok, Token *label_list) {
     if (pctx->fnctx->fn->ty->return_ty->kind != TY_VOID)
       n = assign_cast(pctx->opts, pctx->fnctx->fn->ty->return_ty, n);
     node->m.lhs = n;
-    *rest = skip(tok, ";");
+    *rest = skip(pctx->opts, tok, ";");
     return node;
   }
 
@@ -2961,7 +2929,7 @@ static Node *stmt(ParseCtx *pctx, Token **rest, Token *tok, Token *label_list) {
     DeferStmt *dfr = enter_stmt_scope(pctx);
 
     Node *node = new_node(pctx->slimcc_ctx, ND_IF, tok);
-    node->ctrl.cond = cond_cast(pctx, cond_declaration(pctx, &tok, skip(tok->next, "("), ")", 0));
+    node->ctrl.cond = cond_cast(pctx, cond_declaration(pctx, &tok, skip(pctx->opts, tok->next, "("), ")", 0));
     node->ctrl.then = secondary_block(pctx, &tok, tok);
     if (tok->kind == TK_else)
       node->ctrl.els = secondary_block(pctx, &tok, tok->next);
@@ -2974,10 +2942,10 @@ static Node *stmt(ParseCtx *pctx, Token **rest, Token *tok, Token *label_list) {
     DeferStmt *dfr = enter_stmt_scope(pctx);
 
     Node *node = new_node(pctx->slimcc_ctx, ND_SWITCH, tok);
-    node->ctrl.cond = cond_declaration(pctx, &tok, skip(tok->next, "("), ")", 0);
+    node->ctrl.cond = cond_declaration(pctx, &tok, skip(pctx->opts, tok->next, "("), ")", 0);
     add_type(pctx->opts, node->ctrl.cond);
     if (!is_integer(node->ctrl.cond->ty))
-      error_tok(tok, "controlling expression not integer");
+      error_tok(pctx->opts, tok, "controlling expression not integer");
 
     JumpContext ctx = {.next = jump_ctx, .node = node};
     jump_ctx = &ctx;
@@ -2996,7 +2964,7 @@ static Node *stmt(ParseCtx *pctx, Token **rest, Token *tok, Token *label_list) {
     DeferStmt *dfr = enter_stmt_scope(pctx);
 
     Node *node = new_node(pctx->slimcc_ctx, ND_FOR, tok);
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
 
     if (is_typename(pctx, tok)) {
       Node *expr = declaration(pctx, &tok, tok);
@@ -3014,7 +2982,7 @@ static Node *stmt(ParseCtx *pctx, Token **rest, Token *tok, Token *label_list) {
 
     if (!equal(tok, ")"))
       node->ctrl.for_inc = expression(pctx, &tok, tok);
-    tok = skip(tok, ")");
+    tok = skip(pctx->opts, tok, ")");
 
     loop_body(pctx, rest, tok, node, label_list);
 
@@ -3026,7 +2994,7 @@ static Node *stmt(ParseCtx *pctx, Token **rest, Token *tok, Token *label_list) {
 
     Node *node = new_node(pctx->slimcc_ctx, ND_FOR, tok);
     node->dfr_dest = pctx->fnctx->defr;
-    node->ctrl.cond = cond_cast(pctx, cond_declaration(pctx, &tok, skip(tok->next, "("), ")", 1));
+    node->ctrl.cond = cond_cast(pctx, cond_declaration(pctx, &tok, skip(pctx->opts, tok->next, "("), ")", 1));
     node->dfr_from = pctx->fnctx->defr;
 
     loop_body(pctx, rest, tok, node, label_list);
@@ -3041,11 +3009,11 @@ static Node *stmt(ParseCtx *pctx, Token **rest, Token *tok, Token *label_list) {
 
     loop_body(pctx, &tok, tok->next, node, label_list);
 
-    tok = skip(tok, "while");
-    tok = skip(tok, "(");
+    tok = skip(pctx->opts, tok, "while");
+    tok = skip(pctx->opts, tok, "(");
     node->ctrl.cond = cond_cast(pctx, expression(pctx, &tok, tok));
-    tok = skip(tok, ")");
-    *rest = skip(tok, ";");
+    tok = skip(pctx->opts, tok, ")");
+    *rest = skip(pctx->opts, tok, ";");
     return leave_stmt_scope(pctx, dfr, node);
   }
 
@@ -3055,7 +3023,7 @@ static Node *stmt(ParseCtx *pctx, Token **rest, Token *tok, Token *label_list) {
     enter_tmp_scope(pctx);
     leave_scope(pctx);
 
-    *rest = skip(tok, ";");
+    *rest = skip(pctx->opts, tok, ";");
     return node;
   }
 
@@ -3064,21 +3032,21 @@ static Node *stmt(ParseCtx *pctx, Token **rest, Token *tok, Token *label_list) {
       // [GNU] `goto *ptr` jumps to the address specified by `ptr`.
       Node *node = new_node(pctx->slimcc_ctx, ND_GOTO_EXPR, tok);
       node->m.lhs = expression(pctx, &tok, tok->next->next);
-      *rest = skip(tok, ";");
+      *rest = skip(pctx->opts, tok, ";");
       return node;
     }
-    Node *node = new_node(pctx->slimcc_ctx, ND_GOTO, ident_tok(&tok, tok->next));
+    Node *node = new_node(pctx->slimcc_ctx, ND_GOTO, ident_tok(pctx->opts, &tok, tok->next));
     node->dfr_from = pctx->fnctx->defr;
 
     push_goto(pctx, node);
-    *rest = skip(tok, ";");
+    *rest = skip(pctx->opts, tok, ";");
     return node;
   }
 
   if (tok->kind == TK_break || tok->kind == TK_continue) {
     JumpContext *ctx = resolve_labeled_jump(pctx, rest, tok);
     if (ctx->dfr_ctx != pctx->fnctx->defr_ctx)
-      error_tok(tok, "illegal jump");
+      error_tok(pctx->opts, tok, "illegal jump");
 
     Node *node = new_node(pctx->slimcc_ctx, tok->kind == TK_continue ? ND_CONT : ND_BREAK, tok);
     node->dfr_dest = ctx->dfr_lvl;
@@ -3108,9 +3076,9 @@ static Node *stmt(ParseCtx *pctx, Token **rest, Token *tok, Token *label_list) {
 static void local_labels(ParseCtx *pctx, Token **rest, Token *tok) {
   while (consume(&tok, tok, "__label__")) {
     bool first = true;
-    for (; comma_list(&tok, &tok, ";", !first); first = false) {
+    for (; comma_list(pctx->opts, &tok, &tok, ";", !first); first = false) {
       LocalLabel *ll = ast_arena_calloc(sizeof(LocalLabel));
-      ll->name = ident_tok(&tok, tok);
+      ll->name = ident_tok(pctx->opts, &tok, tok);
       ll->next = pctx->scope->labels;
       pctx->scope->labels = ll;
     }
@@ -3191,11 +3159,11 @@ static Node *expr_stmt(ParseCtx *pctx, Token **rest, Token *tok) {
   Node *n = expression(pctx, &tok, tok);
   add_type(pctx->opts, n);
   if (n->ty->size < 0 && n->ty->kind != TY_ARRAY)
-    error_tok(n->tok, "expression has incomplete type");
+    error_tok(pctx->opts, n->tok, "expression has incomplete type");
 
   Node *node = new_node(pctx->slimcc_ctx, ND_EXPR_STMT, tok);
   node->m.lhs = n;
-  *rest = skip(tok, ";");
+  *rest = skip(pctx->opts, tok, ";");
   return node;
 }
 
@@ -3217,7 +3185,7 @@ static int64_t eval_error2(ParseCtx *pctx, Node *node, char *fmt, ...) {
   }
   va_list ap;
   va_start(ap, fmt);
-  verror_at_tok(node->tok, fmt, ap);
+  verror_at_tok(pctx->opts, node->tok, fmt, ap);
   va_end(ap);
   exit(1);
 }
@@ -3642,7 +3610,7 @@ static int64_t const_expr2(ParseCtx *pctx, Token **rest, Token *tok, Type **ty) 
   Node *node = conditional(pctx, rest, tok);
   add_type(pctx->opts, node);
   if (!is_integer(node->ty))
-    error_tok(tok, "constant expression not integer");
+    error_tok(pctx->opts, tok, "constant expression not integer");
   if (ty)
     *ty = node->ty;
   return eval(pctx, node);
@@ -3655,7 +3623,7 @@ int64_t const_expr(ParseCtx *pctx, Token **rest, Token *tok) {
 static int64_t align_expr(ParseCtx *pctx, Token **rest, Token *tok) {
   int64_t val = const_expr2(pctx, rest, tok, NULL);
   if (!is_pow_of_two(val))
-    error_tok(tok, "alignment not power of two");
+    error_tok(pctx->opts, tok, "alignment not power of two");
   return val;
 }
 
@@ -3738,7 +3706,7 @@ static long_double_t eval_double(ParseCtx *pctx, Node *node) {
       return (uint64_t)eval(pctx, lhs);
     if (is_integer(lhs->ty))
       return eval(pctx, lhs);
-    error_tok(node->tok, "unimplemented cast");
+    error_tok(pctx->opts, node->tok, "unimplemented cast");
   case ND_NUM:
     if (node->num.constant) {
       FPVal fval = {0};
@@ -3857,7 +3825,7 @@ static uint64_t *eval_bitint(ParseCtx *pctx, Node *node) {
         eval_bitint_sign_ext(lhs->ty->size * 8, val, ty->bit_cnt, lhs->ty->is_unsigned);
       return val;
     }
-    error_tok(node->tok, "unimplemented cast");
+    error_tok(pctx->opts, node->tok, "unimplemented cast");
   case ND_NUM: {
     uint64_t *val = malloc(MAX(ty->size, 8));
     memcpy(val, node->num.bitint_data, ty->size);
@@ -3957,13 +3925,13 @@ static Node *atomic_op(ParseCtx *pctx, Node *binary, bool return_old) {
 
 static Node *atomic_builtin_op(ParseCtx *pctx, Token **rest, Token *tok, bool return_old) {
   Token *start = tok;
-  tok = skip(tok->next, "(");
+  tok = skip(pctx->opts, tok->next, "(");
   Node *obj = new_unary(pctx->slimcc_ctx, ND_DEREF, assign(pctx, &tok, tok), start);
-  tok = skip(tok, ",");
+  tok = skip(pctx->opts, tok, ",");
   Node *val = assign(pctx, &tok, tok);
   if (consume(&tok, tok, ","))
-    ident_tok(&tok, tok);
-  *rest = skip(tok, ")");
+    ident_tok(pctx->opts, &tok, tok);
+  *rest = skip(pctx->opts, tok, ")");
 
   Node *binary;
   char *loc = start->loc + 23;
@@ -3980,7 +3948,7 @@ static Node *atomic_builtin_op(ParseCtx *pctx, Token **rest, Token *tok, bool re
   else if (equal_substr(loc, len, "xor"))
     binary = new_binary(pctx->slimcc_ctx, ND_BITXOR, obj, val, start);
   else
-    error_tok(start, "unsupported atomic op");
+    error_tok(pctx->opts, start, "unsupported atomic op");
 
   add_type(pctx->opts, binary->m.lhs);
   add_type(pctx->opts, binary->m.rhs);
@@ -4111,7 +4079,7 @@ static Node *conditional(ParseCtx *pctx, Token **rest, Token *tok) {
 
   if (!consume(&tok, tok->next, ":")) {
     node->ctrl.then = expression(pctx, &tok, tok->next);
-    tok = skip(tok, ":");
+    tok = skip(pctx->opts, tok, ":");
   }
   node->ctrl.els = conditional(pctx, rest, tok);
 
@@ -4314,7 +4282,7 @@ static Node *new_add(ParseCtx *pctx, Node *lhs, Node *rhs, Token *tok) {
     return new_binary(pctx->slimcc_ctx, ND_ADD, lhs, rhs, tok);
   }
 
-  error_tok(tok, "invalid operands");
+  error_tok(pctx->opts, tok, "invalid operands");
 }
 
 static Node *new_sub(ParseCtx *pctx, Node *lhs, Node *rhs, Token *tok) {
@@ -4339,7 +4307,7 @@ static Node *new_sub(ParseCtx *pctx, Node *lhs, Node *rhs, Token *tok) {
     return new_binary(pctx->slimcc_ctx, ND_DIV, new_binary(pctx->slimcc_ctx, ND_SUB, lhs, rhs, tok), sz, tok);
   }
 
-  error_tok(tok, "invalid operands");
+  error_tok(pctx->opts, tok, "invalid operands");
 }
 
 static Type *sizeof_arg(ParseCtx *pctx, Token **rest, Token *tok, Node **expr) {
@@ -4380,7 +4348,7 @@ static Node *unary(ParseCtx *pctx, Token **rest, Token *tok) {
     Node *lhs = unary(pctx, rest, tok->next);
     add_type(pctx->opts, lhs);
     if (is_bitfield(lhs))
-      error_tok(tok, "cannot take address of bitfield");
+      error_tok(pctx->opts, tok, "cannot take address of bitfield");
     return new_unary(pctx->slimcc_ctx, ND_ADDR, lhs, tok);
   }
 
@@ -4424,7 +4392,7 @@ static Node *unary(ParseCtx *pctx, Token **rest, Token *tok) {
 
   // [GNU] labels-as-values
   if (equal(tok, "&&")) {
-    Node *node = new_node(pctx->slimcc_ctx, ND_LABEL_VAL, ident_tok(rest, tok->next));
+    Node *node = new_node(pctx->slimcc_ctx, ND_LABEL_VAL, ident_tok(pctx->opts, rest, tok->next));
     push_goto(pctx, node);
     pctx->fnctx->dont_dealloc_vla = true;
     return node;
@@ -4466,10 +4434,10 @@ static Node *unary(ParseCtx *pctx, Token **rest, Token *tok) {
     }
     if (ty->kind == TY_ARRAY) {
       if (ty->size < 0)
-        error_tok(tok, "countof applied to incomplete array");
+        error_tok(pctx->opts, tok, "countof applied to incomplete array");
       return new_size_t(pctx->slimcc_ctx, ty->array_len, tok);
     }
-    error_tok(tok, "countof applied to non-array type");
+    error_tok(pctx->opts, tok, "countof applied to non-array type");
   }
 
   if (tok->kind == TK_sizeof) {
@@ -4483,7 +4451,7 @@ static Node *unary(ParseCtx *pctx, Token **rest, Token *tok) {
     if (ty->is_flexible && ty->origin)
       ty = ty->origin;
     if (ty->size < 0)
-      error_tok(tok, "sizeof applied to incomplete type");
+      error_tok(pctx->opts, tok, "sizeof applied to incomplete type");
     return new_size_t(pctx->slimcc_ctx, ty->size, tok);
   }
 
@@ -4496,22 +4464,22 @@ static Node *unary(ParseCtx *pctx, Token **rest, Token *tok) {
   return postfix(pctx, node, rest, tok);
 }
 
-static void chk_mem_name2(HashMap *map, Token *name) {
+static void chk_mem_name2(SlimccOptions *opts, HashMap *map, Token *name) {
   HashEntry *ent = hashmap_get_or_insert(map, name->loc, name->len);
   Token *prv = ent->val;
   if (prv) {
-    notice_tok(name, "duplicated member name");
-    error_tok(prv, "previously declared here");
+    notice_tok(opts, name, "duplicated member name");
+    error_tok(opts, prv, "previously declared here");
   }
   ent->val = name;
 }
 
-static void chk_mem_name(HashMap *map, Member *members) {
+static void chk_mem_name(SlimccOptions *opts, HashMap *map, Member *members) {
   for (Member *mem = members; mem; mem = mem->next) {
     if (mem->name)
-      chk_mem_name2(map, mem->name);
+      chk_mem_name2(opts, map, mem->name);
     else if (mem->ty->kind == TY_STRUCT || mem->ty->kind == TY_UNION)
-      chk_mem_name(map, mem->ty->members);
+      chk_mem_name(opts, map, mem->ty->members);
   }
 }
 
@@ -4528,7 +4496,7 @@ static void struct_members(ParseCtx *pctx, Token **rest, Token *tok, Type *ty) {
       continue;
     if (tok->kind == TK_static_assert) {
       eval_static_assert(pctx, &tok, tok->next);
-      tok = skip(tok, ";");
+      tok = skip(pctx->opts, tok, ";");
       continue;
     }
 
@@ -4538,10 +4506,10 @@ static void struct_members(ParseCtx *pctx, Token **rest, Token *tok, Type *ty) {
     // Anonymous struct member
     if (equal(tok, ";") && (basety->kind == TY_STRUCT || basety->kind == TY_UNION)) {
       if (basety->size < 0)
-        error_tok(tok, "member has incomplete type");
+        error_tok(pctx->opts, tok, "member has incomplete type");
       if (basety->tag && !pctx->opts->opt_ms_anon_struct)
-        error_tok(tok, "enable MSVC anonymous struct extension with `-fms-anon-struct`");
-      chk_mem_name(&names, basety->members);
+        error_tok(pctx->opts, tok, "enable MSVC anonymous struct extension with `-fms-anon-struct`");
+      chk_mem_name(pctx->opts, &names, basety->members);
 
       Member *mem = calloc(1, sizeof(Member));
       mem->ty = basety;
@@ -4553,23 +4521,23 @@ static void struct_members(ParseCtx *pctx, Token **rest, Token *tok, Type *ty) {
 
     // Regular struct members
     bool first = true;
-    for (; comma_list(&tok, &tok, ";", !first); first = false) {
+    for (; comma_list(pctx->opts, &tok, &tok, ";", !first); first = false) {
       Member *mem = calloc(1, sizeof(Member));
       mem->ty = declarator(pctx, &tok, tok, basety, &mem->name);
       if (mem->name) {
-        chk_mem_name2(&names, mem->name);
+        chk_mem_name2(pctx->opts, &names, mem->name);
         mem->name->is_live = true;
       }
       if (is_vm_ty(mem->ty) || mem->ty->kind == TY_FUNC || mem->ty->kind == TY_VOID)
-        error_tok(tok, "invalid member type");
+        error_tok(pctx->opts, tok, "invalid member type");
 
       if (consume(&tok, tok, ":")) {
         if (!(is_integer(mem->ty) || mem->ty->kind == TY_BITINT))
-          error_tok(tok, "bit-field not integer");
+          error_tok(pctx->opts, tok, "bit-field not integer");
         mem->is_bitfield = true;
         mem->bit_width = const_expr(pctx, &tok, tok);
         if (mem->bit_width < 0)
-          error_tok(tok, "bit-field with negative width");
+          error_tok(pctx->opts, tok, "bit-field with negative width");
       }
       aligned_attr(pctx, mem->name, tok, &attr, &mem->alt_align);
       mem_attr(pctx, mem->name, tok, &attr, mem);
@@ -4581,7 +4549,7 @@ static void struct_members(ParseCtx *pctx, Token **rest, Token *tok, Type *ty) {
           flex_tok = tok;
           continue;
         }
-        error_tok(flex_tok ? flex_tok : tok, "member has incomplete type");
+        error_tok(pctx->opts, flex_tok ? flex_tok : tok, "member has incomplete type");
       }
     }
   }
@@ -4590,7 +4558,7 @@ static void struct_members(ParseCtx *pctx, Token **rest, Token *tok, Type *ty) {
 
   if (flex_tok) {
     if (cur->ty->size >= 0)
-      error_tok(flex_tok, "member has incomplete type");
+      error_tok(pctx->opts, flex_tok, "member has incomplete type");
     ty->is_flexible = true;
   }
   ty->members = head.next;
@@ -4610,15 +4578,15 @@ static Type *struct_tag(ParseCtx *pctx, TypeKind kind, Token *tag, Token *tok, T
   }
 
   if (tag_ty->kind != kind)
-    error_tok(tag, "conflict of tag type");
+    error_tok(pctx->opts, tag, "conflict of tag type");
 
   if (equal(tok, "{")) {
     if (tag_ty->is_constructing)
-      error_tok(tag, "nested redefinition");
+      error_tok(pctx->opts, tag, "nested redefinition");
 
     if (tag_ty->size >= 0) {
       if (pctx->opts->opt_std < STD_C23)
-        error_tok(tag, "tag redeclaration");
+        error_tok(pctx->opts, tag, "tag redeclaration");
       *tag_compat_ty = tag_ty;
       return new_type(kind, -1, 0);
     }
@@ -4655,7 +4623,7 @@ static Type *struct_union_decl(ParseCtx *pctx, Token **rest, Token *tok, TypeKin
     ty->is_constructing = true;
   }
 
-  struct_members(pctx, &tok, skip(tok, "{"), ty);
+  struct_members(pctx, &tok, skip(pctx->opts, tok, "{"), ty);
 
   attr_aligned(pctx, tok, TK_ATTR, &alt_align);
   bool_attr(pctx, tok, TK_ATTR, "packed", &is_packed);
@@ -4673,7 +4641,7 @@ static Type *struct_union_decl(ParseCtx *pctx, Token **rest, Token *tok, TypeKin
 
     if (tag_compat_ty) {
       if (!is_record_compat(pctx->opts, ty, tag_compat_ty))
-        error_tok(tag, "tag redeclaration");
+        error_tok(pctx->opts, tag, "tag redeclaration");
       return tag_compat_ty;
     }
 
@@ -4798,7 +4766,7 @@ static Member *get_struct_member(ParseCtx *pctx, Type *ty, Token *tok) {
 static Node *struct_ref(ParseCtx *pctx, Node *node, Token *tok) {
   add_type(pctx->opts, node);
   if (node->ty->kind != TY_STRUCT && node->ty->kind != TY_UNION)
-    error_tok(node->tok, "not a struct nor a union");
+    error_tok(pctx->opts, node->tok, "not a struct nor a union");
 
   Type *ty = node->ty;
   bool is_nonlval = node->is_nonlval;
@@ -4806,7 +4774,7 @@ static Node *struct_ref(ParseCtx *pctx, Node *node, Token *tok) {
   for (;;) {
     Member *mem = get_struct_member(pctx, ty, tok);
     if (!mem)
-      error_tok(tok, "no such member");
+      error_tok(pctx->opts, tok, "no such member");
     node = new_unary(pctx->slimcc_ctx, ND_MEMBER, node, tok);
     node->m.member = mem;
     apply_cv_qualifier(pctx, node, ty);
@@ -4842,7 +4810,7 @@ static Node *postfix(ParseCtx *pctx, Node *node, Token **rest, Token *tok) {
       // x[y] is short for *(x+y)
       Token *start = tok;
       Node *idx = expression(pctx, &tok, tok->next);
-      tok = skip(tok, "]");
+      tok = skip(pctx->opts, tok, "]");
 
       add_type(pctx->opts, node);
       Type *ty = node->ty;
@@ -4902,7 +4870,7 @@ static Node *funcall(ParseCtx *pctx, Token **rest, Token *tok, Node *fn) {
 
   enter_tmp_scope(pctx);
 
-  while (comma_list(rest, &tok, ")", cur != &head)) {
+  while (comma_list(pctx->opts, rest, &tok, ")", cur != &head)) {
     Node *arg = assign(pctx, &tok, tok);
     add_type(pctx->opts, arg);
 
@@ -4912,7 +4880,7 @@ static Node *funcall(ParseCtx *pctx, Token **rest, Token *tok, Node *fn) {
       param = param->param_next;
     } else {
       if (!ty->is_variadic && !ty->is_oldstyle)
-        error_tok(tok, "too many arguments");
+        error_tok(pctx->opts, tok, "too many arguments");
 
       if (is_integer(arg->ty) && arg->ty->size < 4)
         arg = new_cast(pctx->slimcc_ctx, arg, ty_int);
@@ -4925,7 +4893,7 @@ static Node *funcall(ParseCtx *pctx, Token **rest, Token *tok, Node *fn) {
     cur->arg_expr = arg;
   }
   if (param)
-    error_tok(tok, "too few arguments");
+    error_tok(pctx->opts, tok, "too few arguments");
 
   Node *node = new_node(pctx->slimcc_ctx, ND_FUNCALL, tok);
   node->call.expr = fn;
@@ -4947,7 +4915,7 @@ static Node *funcall(ParseCtx *pctx, Token **rest, Token *tok, Node *fn) {
 
 static Node *generic_selection(ParseCtx *pctx, Token **rest, Token *tok) {
   Token *start = tok;
-  tok = skip(tok, "(");
+  tok = skip(pctx->opts, tok, "(");
 
   Type *t1;
   if (is_typename(pctx, tok)) {
@@ -4960,9 +4928,9 @@ static Node *generic_selection(ParseCtx *pctx, Token **rest, Token *tok) {
   Node *ret = NULL;
   Node *def = NULL;
 
-  while (comma_list(rest, &tok, ")", true)) {
+  while (comma_list(pctx->opts, rest, &tok, ")", true)) {
     if (tok->kind == TK_default) {
-      tok = skip(tok->next, ":");
+      tok = skip(pctx->opts, tok->next, ":");
       def = assign(pctx, &tok, tok);
       continue;
     }
@@ -4970,11 +4938,11 @@ static Node *generic_selection(ParseCtx *pctx, Token **rest, Token *tok) {
     Type *t2 = declspec(pctx, &tok, tok, &(VarAttr){0}, SC_NONE);
     t2 = declarator2(pctx, &tok, tok, t2, NULL, &(DeclContext){.let_star = true});
 
-    Node *node = assign(pctx, &tok, skip(tok, ":"));
+    Node *node = assign(pctx, &tok, skip(pctx->opts, tok, ":"));
     if (is_compatible2(pctx->opts, t1, t2)) {
       if (ret) {
-        notice_tok(ret->tok, "ambiguous _Generic selection");
-        error_tok(node->tok, "with this option");
+        notice_tok(pctx->opts, ret->tok, "ambiguous _Generic selection");
+        error_tok(pctx->opts, node->tok, "with this option");
       }
       ret = node;
     }
@@ -4982,7 +4950,7 @@ static Node *generic_selection(ParseCtx *pctx, Token **rest, Token *tok) {
   if (!ret)
     ret = def;
   if (!ret)
-    error_tok(start, "controlling expression type not compatible with"
+    error_tok(pctx->opts, start, "controlling expression type not compatible with"
                      " any generic association type");
   return ret;
 }
@@ -4990,13 +4958,13 @@ static Node *generic_selection(ParseCtx *pctx, Token **rest, Token *tok) {
 static Node *checked_arith(ParseCtx *pctx, Token **rest, Token *tok, NodeKind kind) {
   Node *node = new_node(pctx->slimcc_ctx, ND_CKD_ARITH, tok);
   node->arith_kind = kind;
-  tok = skip(tok->next, "(");
+  tok = skip(pctx->opts, tok->next, "(");
   node->m.lhs = assign(pctx, &tok, tok);
-  tok = skip(tok, ",");
+  tok = skip(pctx->opts, tok, ",");
   node->m.rhs = assign(pctx, &tok, tok);
-  tok = skip(tok, ",");
+  tok = skip(pctx->opts, tok, ",");
   node->m.target = assign(pctx, &tok, tok);
-  *rest = skip(tok, ")");
+  *rest = skip(pctx->opts, tok, ")");
   add_type(pctx->opts, node);
 
   Token *bad_tok = NULL;
@@ -5009,7 +4977,7 @@ static Node *checked_arith(ParseCtx *pctx, Token **rest, Token *tok, NodeKind ki
   else if (!is_int_class(node->m.rhs->ty))
     bad_tok = node->m.rhs->tok;
   if (bad_tok)
-    error_tok(bad_tok, "operand invalid for integer overflow arithmetic");
+    error_tok(pctx->opts, bad_tok, "operand invalid for integer overflow arithmetic");
 
   return node;
 }
@@ -5021,13 +4989,13 @@ static Node *compound_literal(ParseCtx *pctx, Token **rest, Token *tok) {
                       SC_CONSTEXPR | SC_REGISTER | SC_STATIC | SC_THREAD);
 
   ty = declarator(pctx, &tok, tok, ty, NULL);
-  tok = skip(tok, ")");
+  tok = skip(pctx->opts, tok, ")");
 
   if (ty->kind == TY_VOID ||
       ty->kind == TY_FUNC ||
       ty->kind == TY_VLA ||
       (ty->size < 0 && ty->kind != TY_ARRAY))
-    error_tok(tok, "invalid compound literal type");
+    error_tok(pctx->opts, tok, "invalid compound literal type");
 
   Node *expr = NULL;
   if (!is_const_context(pctx))
@@ -5067,9 +5035,9 @@ static Node *compound_literal(ParseCtx *pctx, Token **rest, Token *tok) {
 
 static Node *builtin_functions(ParseCtx *pctx, Token **rest, Token *tok) {
   if (equal(tok, "__builtin_alloca")) {
-    Node *node = assign(pctx, &tok, skip(tok->next, "("));
+    Node *node = assign(pctx, &tok, skip(pctx->opts, tok->next, "("));
     node = new_unary(pctx->slimcc_ctx, ND_ALLOCA, node, tok);
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
 
     pctx->fnctx->dont_dealloc_vla = true;
     return node;
@@ -5078,41 +5046,41 @@ static Node *builtin_functions(ParseCtx *pctx, Token **rest, Token *tok) {
   if (equal(tok, "__builtin_frame_address")) {
     Node *node = new_node(pctx->slimcc_ctx, ND_FRAME_ADDR, tok);
     node->ty = pointer_to(ty_void);
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
     int64_t val;
     if (!is_const_expr(pctx, expression(pctx, &tok, tok), &val))
-      error_tok(tok, "expected integer constant expression");
+      error_tok(pctx->opts, tok, "expected integer constant expression");
     node->num.val = val;
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
     return node;
   }
 
   if (equal(tok, "__builtin_return_address")) {
     Node *node = new_node(pctx->slimcc_ctx, ND_RTN_ADDR, tok);
     node->ty = pointer_to(ty_void);
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
     int64_t val;
     if (!is_const_expr(pctx, expression(pctx, &tok, tok), &val))
-      error_tok(tok, "expected integer constant expression");
+      error_tok(pctx->opts, tok, "expected integer constant expression");
     node->num.val = val;
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
     return node;
   }
 
   if (equal(tok, "__builtin_extract_return_addr")) {
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
     Node *node = assign(pctx, &tok, tok);
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
     return node;
   }
 
   if (equal(tok, "__builtin_atomic_chk")) {
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
     Node *node = assign(pctx, &tok, tok);
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
     add_type(pctx->opts, node);
     if (node->ty->kind != TY_PTR || node->ty->base->kind == TY_VOID)
-      error_tok(tok, "expected pointer to non-void type");
+      error_tok(pctx->opts, tok, "expected pointer to non-void type");
     Type *base = node->ty->base;
     if (!(base->qual & Q_ATOMIC))
       node->ty = pointer_to(qual_type(Q_ATOMIC, base, node->tok));
@@ -5127,13 +5095,13 @@ static Node *builtin_functions(ParseCtx *pctx, Token **rest, Token *tok) {
 
   if (equal(tok, "__builtin_atomic_thread_fence")) {
     Node *node = new_node(pctx->slimcc_ctx, ND_THREAD_FENCE, tok);
-    *rest = skip(skip(tok->next, "("), ")");
+    *rest = skip(pctx->opts, skip(pctx->opts, tok->next, "("), ")");
     return node;
   }
 
   if (equal(tok, "__builtin_constant_p")) {
     Node *node = new_node(pctx->slimcc_ctx, ND_NUM, tok);
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
     Node *exp = conditional(pctx, &tok, tok);
     add_type(pctx->opts, exp);
 
@@ -5143,39 +5111,39 @@ static Node *builtin_functions(ParseCtx *pctx, Token **rest, Token *tok) {
       node->num.val = 1;
 
     node->ty = ty_int;
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
     return node;
   }
 
   if (equal(tok, "__builtin_expect")) {
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
     Node *node = new_cast(pctx->slimcc_ctx, assign(pctx, &tok, tok), ty_long);
-    tok = skip(tok, ",");
+    tok = skip(pctx->opts, tok, ",");
     assign(pctx, &tok, tok);
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
     return node;
   }
 
   if (equal(tok, "__builtin_expect_with_probability")) {
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
     Node *node = new_cast(pctx->slimcc_ctx, assign(pctx, &tok, tok), ty_long);
-    tok = skip(tok, ",");
+    tok = skip(pctx->opts, tok, ",");
     assign(pctx, &tok, tok);
-    tok = skip(tok, ",");
+    tok = skip(pctx->opts, tok, ",");
     assign(pctx, &tok, tok);
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
     return node;
   }
 
   if (equal(tok, "__builtin_offsetof")) {
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
     Type *ty = typename(pctx, &tok, tok);
     Node *node = new_unary(pctx->slimcc_ctx, ND_DEREF, new_cast(pctx->slimcc_ctx, new_num(pctx->slimcc_ctx, 0, tok), pointer_to(ty)), tok);
-    tok = skip(tok, ",");
+    tok = skip(pctx->opts, tok, ",");
     Token dot = {.kind = TK_PUNCT, .loc = ".", .len = 1, .next = tok, .origin = tok};
     node = postfix(pctx, node, &tok, &dot);
     add_type(pctx->opts, node);
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
 
     int64_t ofs;
     if (eval_non_var_ofs(pctx, node, &ofs))
@@ -5193,68 +5161,68 @@ static Node *builtin_functions(ParseCtx *pctx, Token **rest, Token *tok) {
     return checked_arith(pctx, rest, tok, ND_MUL);
 
   if (equal(tok, "__builtin_types_compatible_p")) {
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
     Type *t1 = typename(pctx, &tok, tok);
-    tok = skip(tok, ",");
+    tok = skip(pctx->opts, tok, ",");
     Type *t2 = typename(pctx, &tok, tok);
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
     return new_num(pctx->slimcc_ctx, is_compatible(pctx->opts, t1, t2), tok);
   }
 
   if (equal(tok, "__builtin_unreachable")) {
     Node *node = new_node(pctx->slimcc_ctx, ND_UNREACHABLE, tok);
-    *rest = skip(skip(tok->next, "("), ")");
+    *rest = skip(pctx->opts, skip(pctx->opts, tok->next, "("), ")");
     return node;
   }
 
   if (equal(tok, "__builtin_c23_va_start")) {
     Node *node = new_node(pctx->slimcc_ctx, ND_VA_START, tok);
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
     node->m.lhs = conditional(pctx, &tok, tok);
     if (equal(tok, ","))
       assign(pctx, &tok, tok->next);
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
     return node;
   }
 
   if (equal(tok, "__builtin_va_start")) {
     Node *node = new_node(pctx->slimcc_ctx, ND_VA_START, tok);
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
     node->m.lhs = conditional(pctx, &tok, tok);
-    assign(pctx, &tok, skip(tok, ","));
-    *rest = skip(tok, ")");
+    assign(pctx, &tok, skip(pctx->opts, tok, ","));
+    *rest = skip(pctx->opts, tok, ")");
     return node;
   }
 
   if (equal(tok, "__builtin_va_copy")) {
     Node *node = new_node(pctx->slimcc_ctx, ND_VA_COPY, tok);
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
     node->m.lhs = conditional(pctx, &tok, tok);
-    tok = skip(tok, ",");
+    tok = skip(pctx->opts, tok, ",");
     node->m.rhs = conditional(pctx, &tok, tok);
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
     return node;
   }
 
   if (equal(tok, "__builtin_va_end")) {
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
     Node *node = conditional(pctx, &tok, tok);
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
     return node;
   }
 
   if (equal(tok, "__builtin_va_arg")) {
     Node *node = new_node(pctx->slimcc_ctx, ND_VA_ARG, tok);
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
 
     Node *ap_arg = conditional(pctx, &tok, tok);
     add_type(pctx->opts, ap_arg);
     node->m.lhs = ap_arg;
-    tok = skip(tok, ",");
+    tok = skip(pctx->opts, tok, ",");
 
     VarAttr attr = {0};
     Type *ty = typename2(pctx, &tok, tok, &attr);
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
 
     node->ty = pointer_to(ty);
     node = new_unary(pctx->slimcc_ctx, ND_DEREF, node, tok);
@@ -5267,28 +5235,28 @@ static Node *builtin_functions(ParseCtx *pctx, Token **rest, Token *tok) {
 
   if (equal(tok, "__builtin_compare_and_swap")) {
     Node *node = new_node(pctx->slimcc_ctx, ND_CAS, tok);
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
     node->cas.addr = assign(pctx, &tok, tok);
-    tok = skip(tok, ",");
+    tok = skip(pctx->opts, tok, ",");
     node->cas.old_val = assign(pctx, &tok, tok);
-    tok = skip(tok, ",");
+    tok = skip(pctx->opts, tok, ",");
     node->cas.new_val = assign(pctx, &tok, tok);
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
     return node;
   }
 
   if (equal(tok, "__builtin_atomic_exchange")) {
     Node *node = new_node(pctx->slimcc_ctx, ND_EXCH, tok);
-    tok = skip(tok->next, "(");
+    tok = skip(pctx->opts, tok->next, "(");
     node->m.lhs = assign(pctx, &tok, tok);
-    tok = skip(tok, ",");
+    tok = skip(pctx->opts, tok, ",");
     node->m.rhs = assign(pctx, &tok, tok);
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
     return node;
   }
 
   if (!strncmp(tok->loc, "__builtin_math_constant_", 24)) {
-    *rest = skip(skip(tok->next, "("), ")");
+    *rest = skip(pctx->opts, skip(pctx->opts, tok->next, "("), ")");
 
     Node *node = new_node(pctx->slimcc_ctx, ND_NUM, tok);
     char *loc = tok->loc + 24;
@@ -5310,7 +5278,7 @@ static Node *builtin_functions(ParseCtx *pctx, Token **rest, Token *tok) {
       node->num.constant = MATH_CONSTANT_NANSL;
       node->ty = ty_ldouble;
     } else {
-      error_tok(tok, "unknown math constant");
+      error_tok(pctx->opts, tok, "unknown math constant");
     }
     return node;
   }
@@ -5324,15 +5292,15 @@ static Node *primary(ParseCtx *pctx, Token **rest, Token *tok) {
 
     if (equal(tok->next, "{")) {
       if (!pctx->fnctx)
-        error_tok(tok, "statement expression not in a function");
+        error_tok(pctx->opts, tok, "statement expression not in a function");
 
       Node *node = compound_stmt(pctx, &tok, tok->next, ND_STMT_EXPR);
-      *rest = skip(tok, ")");
+      *rest = skip(pctx->opts, tok, ")");
       return node;
     }
 
     Node *node = expression(pctx, &tok, tok->next);
-    *rest = skip(tok, ")");
+    *rest = skip(pctx->opts, tok, ")");
     return node;
   }
 
@@ -5363,9 +5331,9 @@ static Node *primary(ParseCtx *pctx, Token **rest, Token *tok) {
         ty->is_oldstyle = true;
         return new_var_node(pctx->slimcc_ctx, func_prototype2(pctx, ty, &(VarAttr){0}, tok), tok);
       }
-      error_tok(tok, "implicit declaration of a function");
+      error_tok(pctx->opts, tok, "implicit declaration of a function");
     }
-    error_tok(tok, "undefined variable");
+    error_tok(pctx->opts, tok, "undefined variable");
   }
 
   if (tok->kind == TK_STR) {
@@ -5393,14 +5361,14 @@ static Node *primary(ParseCtx *pctx, Token **rest, Token *tok) {
 
   if (tok->kind == TK_INT_NUM || tok->kind == TK_PP_NUM) {
     Node *node = new_node(pctx->slimcc_ctx, ND_NUM, tok);
-    convert_pp_number(tok, node);
+    convert_pp_number(pctx->opts, tok, node);
     *rest = tok->next;
     return node;
   }
 
   if (tok->kind == TK_FUNCTION) {
     if (!pctx->fnctx)
-      error_tok(tok, "not in function");
+      error_tok(pctx->opts, tok, "not in function");
     if (!pctx->fnctx->fnname) {
       char *name = pctx->fnctx->fn->name;
       pctx->fnctx->fnname = new_static_lvar(pctx, array_of(ty_pchar, strlen(name) + 1));
@@ -5410,18 +5378,18 @@ static Node *primary(ParseCtx *pctx, Token **rest, Token *tok) {
     return new_var_node(pctx->slimcc_ctx, pctx->fnctx->fnname, tok);
   }
 
-  error_tok(tok, "expected an expression");
+  error_tok(pctx->opts, tok, "expected an expression");
 }
 
 static Node *parse_typedef(ParseCtx *pctx, Token **rest, Token *tok, Type *basety, VarAttr *attr) {
   Node *node = NULL;
   bool first = true;
-  for (; comma_list(rest, &tok, ";", !first); first = false) {
+  for (; comma_list(pctx->opts, rest, &tok, ";", !first); first = false) {
     Token *name = NULL;
     Type *ty = declarator(pctx, &tok, tok, basety, &name);
 
     if (!name)
-      error_tok(tok, "typedef name omitted");
+      error_tok(pctx->opts, tok, "typedef name omitted");
 
     int align = 0;
     aligned_attr(pctx, name, tok, attr, &align);
@@ -5430,13 +5398,13 @@ static Node *parse_typedef(ParseCtx *pctx, Token **rest, Token *tok, Type *baset
     VarScope *vsc = ent->val;
     if (vsc) {
       if (!vsc->type_def)
-        error_tok(name, "redeclaration of '%.*s'", name->len, name->loc);
+        error_tok(pctx->opts, name, "redeclaration of '%.*s'", name->len, name->loc);
       if (!is_compatible2(pctx->opts, ty, vsc->type_def))
-        error_tok(name, "incompatible redeclaration");
+        error_tok(pctx->opts, name, "incompatible redeclaration");
       if (is_vm_ty(ty) || is_vm_ty(vsc->type_def))
-        error_tok(name, "redefining typedef of variably-modified type");
+        error_tok(pctx->opts, name, "redefining typedef of variably-modified type");
       if (vsc->type_def_align != align)
-        error_tok(name, "conflict of typedef alignment");
+        error_tok(pctx->opts, name, "conflict of typedef alignment");
     } else {
       vsc = ent->val = ast_arena_calloc(sizeof(VarScope));
       vsc->type_def = ty;
@@ -5456,7 +5424,7 @@ static void resolve_goto_defer(ParseCtx *pctx, Node *node, DeferStmt *dst_dfr) {
     if (dfr == dst_dfr)
       break;
   if (!dfr)
-    error_tok(node->tok->next, "illegal jump");
+    error_tok(pctx->opts, node->tok->next, "illegal jump");
 
   node->dfr_dest = dfr;
 }
@@ -5475,11 +5443,11 @@ static void resolve_gotos(ParseCtx *pctx) {
           continue;
         }
         if (dest)
-          error_tok(x->tok, "duplicated label");
+          error_tok(pctx->opts, x->tok, "duplicated label");
         dest = lbl;
       }
       if (!dest)
-        error_tok(x->tok, "use of undeclared label");
+        error_tok(pctx->opts, x->tok, "use of undeclared label");
       cur->lbl.next = NULL;
       pctx->fnctx->labels = head.lbl.next;
       ent->val = dest;
@@ -5494,7 +5462,7 @@ static Node *resolve_local_gotos(ParseCtx *pctx) {
   for (Node *x = pctx->scope->gotos; x; x = x->lbl.next) {
     LocalLabel *ll = find_local_label(pctx->scope, x->tok);
     if (!ll || !ll->label)
-      error_tok(x->tok, "use of undeclared local label");
+      error_tok(pctx->opts, x->tok, "use of undeclared local label");
 
     x->lbl.node = ll->label;
     resolve_goto_defer(pctx, x, ll->label->dfr_from);
@@ -5510,19 +5478,19 @@ static Node *resolve_local_gotos(ParseCtx *pctx) {
 
 static Obj *func_prototype2(ParseCtx *pctx, Type *ty, VarAttr *attr, Token *name) {
   if (pctx->scope->parent && (attr->strg & SC_STATIC))
-    error_tok(name, "static function not in file scope");
+    error_tok(pctx->opts, name, "static function not in file scope");
 
   HashEntry *ent = hashmap_get_or_insert(&pctx->symbols, name->loc, name->len);
   Obj *fn = ent->val;
   if (fn) {
     if (!is_compatible(pctx->opts, fn->ty, ty))
-      error_tok(name, "incompatible redeclaration");
+      error_tok(pctx->opts, name, "incompatible redeclaration");
     if (!fn->is_static && (attr->strg & SC_STATIC))
-      error_tok(name, "static declaration follows a non-static declaration");
+      error_tok(pctx->opts, name, "static declaration follows a non-static declaration");
     if (fn->ty->is_oldstyle && !ty->is_oldstyle)
       fn->ty = ty;
   } else {
-    fn = ent->val = new_gvar(pctx, get_ident(name), ty);
+    fn = ent->val = new_gvar(pctx, get_ident(pctx->opts, name), ty);
     fn->is_static = attr->strg & SC_STATIC;
 
     if (strstr(fn->name, "setjmp") ||
@@ -5552,7 +5520,7 @@ static Node *func_old_style_param(ParseCtx *pctx, Token **rest, Token *tok, Type
       p2 = p2->param_next;
     }
     if (!p1 != !p2)
-      error_tok(tok, "prototype mismatch");
+      error_tok(pctx->opts, tok, "prototype mismatch");
     def_ty->is_oldstyle = false;
   }
 
@@ -5567,20 +5535,20 @@ static Node *func_old_style_param(ParseCtx *pctx, Token **rest, Token *tok, Type
       Token *name = NULL;
       Type *ty = declarator(pctx, &tok, tok, basety, &name);
       if (!name)
-        error_tok(tok, "expected identifier");
+        error_tok(pctx->opts, tok, "expected identifier");
 
       chain_expr(pctx->slimcc_ctx, &expr, calc_vla(pctx, ty, tok));
 
       Obj *var = find_param(name, def_ty->param_list);
       if (!var)
-        error_tok(name, "no such parameter");
+        error_tok(pctx->opts, name, "no such parameter");
 
       if (!def_ty->is_oldstyle) {
         ty = ptr_decay(ty);
         if (!is_compatible(pctx->opts, var->ty, ty))
-          error_tok(name, "incompatible type");
+          error_tok(pctx->opts, name, "incompatible type");
         if (ty->kind == TY_VOID || ty->size <= 0)
-          error_tok(name, "invalid parameter type");
+          error_tok(pctx->opts, name, "invalid parameter type");
         var->ty = ty;
         push_var_name(pctx, name, var);
         continue;
@@ -5595,7 +5563,7 @@ static Node *func_old_style_param(ParseCtx *pctx, Token **rest, Token *tok, Type
       if (!promoted) {
         ty = ptr_decay(ty);
         if (ty->kind == TY_VOID || ty->size <= 0)
-          error_tok(name, "invalid parameter type");
+          error_tok(pctx->opts, name, "invalid parameter type");
         var->ty = ty;
         push_var_name(pctx, name, var);
       } else {
@@ -5608,7 +5576,7 @@ static Node *func_old_style_param(ParseCtx *pctx, Token **rest, Token *tok, Type
           rhs = new_binary(pctx->slimcc_ctx, ND_BITAND, rhs, new_num(pctx->slimcc_ctx, 1, name), name);
         chain_expr(pctx->slimcc_ctx, &expr, new_binary(pctx->slimcc_ctx,ND_ASSIGN, lhs, rhs, name));
       }
-    } while (comma_list(&tok, &tok, ";", true));
+    } while (comma_list(pctx->opts, &tok, &tok, ";", true));
   }
 
   if (def_ty->is_oldstyle) {
@@ -5625,9 +5593,9 @@ static Node *func_old_style_param(ParseCtx *pctx, Token **rest, Token *tok, Type
 
 static void func_definition(ParseCtx *pctx, Token **rest, Token *tok, Obj *fn, Type *ty) {
   if (ty->return_ty->size < 0)
-    error_tok(tok, "incomplate return type");
+    error_tok(pctx->opts, tok, "incomplate return type");
   if (fn->is_definition)
-    error_tok(tok, "redefinition of %s", fn->name);
+    error_tok(pctx->opts, tok, "redefinition of %s", fn->name);
   fn->is_definition = true;
 
   Type *prot_ty = fn->ty;
@@ -5651,7 +5619,7 @@ static void func_definition(ParseCtx *pctx, Token **rest, Token *tok, Obj *fn, T
 
       for (Obj *var = ty->param_list; var; var = var->param_next)
         if (var->ty->size <= 0)
-          error_tok(tok, "incomplete parameter type");
+          error_tok(pctx->opts, tok, "incomplete parameter type");
     }
   }
 
@@ -5673,12 +5641,12 @@ static void func_definition(ParseCtx *pctx, Token **rest, Token *tok, Obj *fn, T
 
 static Obj *func_prototype(ParseCtx *pctx, Token **rest, Token *tok, Token *name, Type *ty, VarAttr *attr) {
   if (!name)
-    error_tok(tok, "function name omitted");
+    error_tok(pctx->opts, tok, "function name omitted");
   if (is_vm_ty(ty->return_ty))
-    error_tok(tok, "cannot return variably-modified type");
+    error_tok(pctx->opts, tok, "cannot return variably-modified type");
 
   Obj *fn = func_prototype2(pctx, ty, attr, name);
-  assembler_name(&tok, tok, fn);
+  assembler_name(pctx->opts, &tok, tok, fn);
   aligned_attr(pctx, name, tok, attr, &fn->alt_align);
   symbol_attr(pctx, name, tok, attr, fn);
   func_attr(pctx, name, tok, attr, fn);
@@ -5698,7 +5666,7 @@ static void func_exportness(ParseCtx *pctx, Obj *fn, VarAttr *attr, bool is_def)
 
 static void global_declaration(ParseCtx *pctx, Token **rest, Token *tok, Type *basety, VarAttr *attr) {
   bool first = true;
-  for (; comma_list(&tok, &tok, ";", !first); first = false) {
+  for (; comma_list(pctx->opts, &tok, &tok, ";", !first); first = false) {
     Token *name = NULL;
     Type *ty = declarator2(pctx, &tok, tok, basety, &name,
                            &(DeclContext){.is_glob = !pctx->scope->parent});
@@ -5716,16 +5684,16 @@ static void global_declaration(ParseCtx *pctx, Token **rest, Token *tok, Type *b
     }
 
     if (!name)
-      error_tok(tok, "variable name omitted");
+      error_tok(pctx->opts, tok, "variable name omitted");
 
     bool is_definition = !(attr->strg & SC_EXTERN);
     if (!is_definition) {
       if (is_vm_ty(ty))
-        error_tok(tok, "variably-modified type cannot be 'extern'");
+        error_tok(pctx->opts, tok, "variably-modified type cannot be 'extern'");
 
       if (equal(tok, "=")) {
         if (pctx->scope->parent)
-          error_tok(tok, "extern variable cannot be initialized");
+          error_tok(pctx->opts, tok, "extern variable cannot be initialized");
         is_definition = true;
       }
     }
@@ -5734,20 +5702,20 @@ static void global_declaration(ParseCtx *pctx, Token **rest, Token *tok, Type *b
     Obj *var = ent->val;
     if (var) {
       if (!is_compatible2(pctx->opts, var->ty, ty))
-        error_tok(tok, "incompatible type");
+        error_tok(pctx->opts, tok, "incompatible type");
       if ((!var->is_static && !!(attr->strg & SC_STATIC)) ||
           (var->is_static && !(attr->strg & (SC_STATIC | SC_EXTERN))))
-        error_tok(name, "inconsistent static");
+        error_tok(pctx->opts, name, "inconsistent static");
       if (var->ty->kind == TY_ARRAY && var->ty->size < 0)
         var->ty = ty;
     } else {
-      var = ent->val = new_gvar(pctx, get_ident(name), ty);
+      var = ent->val = new_gvar(pctx, get_ident(pctx->opts, name), ty);
       var->is_static = (attr->strg & SC_STATIC) || (attr->strg & SC_CONSTEXPR);
       var->is_tls = attr->strg & SC_THREAD;
     }
     push_gvar_name(pctx, name, var);
 
-    assembler_name(&tok, tok, var);
+    assembler_name(pctx->opts, &tok, tok, var);
     aligned_attr(pctx, name, tok, attr, &var->alt_align);
     symbol_attr(pctx, name, tok, attr, var);
 
@@ -5756,7 +5724,7 @@ static void global_declaration(ParseCtx *pctx, Token **rest, Token *tok, Type *b
     var->is_definition = true;
 
     if (attr->strg & SC_CONSTEXPR)
-      constexpr_initializer(pctx, &tok, skip(tok, "="), var, var);
+      constexpr_initializer(pctx, &tok, skip(pctx->opts, tok, "="), var, var);
     else if (equal(tok, "="))
       gvar_initializer(pctx, &tok, tok->next, var);
   }
@@ -5798,9 +5766,9 @@ Obj *parse(ParseCtx *pctx, Token *tok) {
     if (tok->kind == TK_asm) {
       static Type ty = {.kind = TY_ASM};
       Obj *obj = new_gvar(pctx, NULL, &ty);
-      obj->asm_name = str_tok(&tok, skip(tok->next, "("))->str;
+      obj->asm_name = str_tok(pctx->opts, &tok, skip(pctx->opts, tok->next, "("))->str;
       obj->is_definition = true;
-      tok = skip(tok, ")");
+      tok = skip(pctx->opts, tok, ")");
       continue;
     }
 
@@ -5816,7 +5784,7 @@ Obj *parse(ParseCtx *pctx, Token *tok) {
       Obj *last = pctx->globals;
 
       eval_static_assert(pctx, &tok, tok->next);
-      tok = skip(tok, ";");
+      tok = skip(pctx->opts, tok, ";");
 
       for (Obj *obj = last->next; obj;) {
         Obj *tmp = obj;

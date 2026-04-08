@@ -16,13 +16,6 @@ struct Pool {
   Pool *next;
 };
 
-Arena ast_arena;
-Arena node_arena;
-Arena pp_arena;
-bool free_alloc;
-
-static Pool *pool_freelist;
-
 bool check_mem_usage(void) {
 #if USE_ASAN || defined(__FILC__)
   return true;
