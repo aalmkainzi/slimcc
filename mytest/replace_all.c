@@ -17,9 +17,11 @@ bool sv_equal(const CGS_StrView *a, const CGS_StrView *b)
 #define T SVSet, CGS_StrView
 #include <stc/hset.h>
 
+bool strv_in_dstr_arr(CGS_StrView elm, CGS_DStr *arr, size_t n);
+
 int main(int argc, char **argv)
 {
-    if(argc != 4)
+    if(argc < 4)
     {
         puts("usage error");
         exit(1);
@@ -38,11 +40,18 @@ int main(int argc, char **argv)
     CGS_DStr param = cgs_dstr_init_from("(");
     cgs_append(&param, argv[2]);
     
-    CGS_DStr arg = cgs_dstr_init_from("(");
-    cgs_append(&arg, argv[3]);
+    size_t narg_variants = (argc - 3);
+    CGS_DStr *args = malloc(sizeof(*args) * narg_variants);
+    CGS_DStr *args_comma_space = malloc(sizeof(*args_comma_space) * narg_variants);
+    for(int i = 3 ; i < argc ; i++)
+    {
+        args[i - 3] = cgs_dstr_init_from("(");
+        cgs_append(&args[i - 3], argv[i]);
+        
+        args_comma_space[i - 3] = cgs_dstr_init_from(argv[i]);
+        cgs_append(&args_comma_space[i - 3], ", ");
+    }
     
-    CGS_DStr arg_comma_space = cgs_dstr_init_from(argv[3]);
-    cgs_append(&arg_comma_space, ", ");
     
     while(file_view.len != 0)
     {
@@ -78,19 +87,44 @@ int main(int argc, char **argv)
             if(
                 !cgs_starts_with(file_view, "(")  ||
                 cgs_starts_with(file_view, param) ||
-                cgs_starts_with(file_view, arg)
+                strv_in_dstr_arr(file_view, args, narg_variants)
             )
             {
                 continue;
             }
             
+            CGS_StrView found_func = file_view;
+            found_func.chars -= 1;
+            found_func.len = 1;
+            
+            while(isalnum(found_func.chars[-1]) || found_func.chars[-1] == '_')
+            {
+                found_func.chars -= 1;
+                found_func.len += 1;
+            }
+            
+            if(!cgs_equal(found_func, func))
+                continue;
+            
             file_view.chars += 1;
             file_view.len   -= 1;
             
             ptrdiff_t index = file_view.chars - dstr.chars;
-            cgs_insert(&dstr, arg_comma_space, index);
+            cgs_insert(&dstr, args_comma_space[0], index);
         }
     }
     
     cgs_print(dstr);
+}
+
+bool strv_in_dstr_arr(CGS_StrView elm, CGS_DStr *arr, size_t n)
+{
+    for(size_t i = 0 ; i < n ; i++)
+    {
+        if(cgs_starts_with(elm, arr[i]))
+        {
+            return true;
+        }
+    }
+    return false;
 }

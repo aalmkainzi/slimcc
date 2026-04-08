@@ -1,5 +1,25 @@
 #include "slimcc.h"
 
+void error(char *fmt, ...) FMTCHK(1, 2) NORETURN;
+void error_ice(char *file, int32_t line) NORETURN;
+void error_at(SlimccTokenizeCtx *tctx, char *loc, char *fmt, ...) FMTCHK(3, 4) NORETURN;
+void error_tok(SlimccOptions *opts, Token *tok, char *fmt, ...) FMTCHK(3, 4) NORETURN;
+void warn_tok(SlimccOptions *opts, Token *tok, char *fmt, ...) FMTCHK(3, 4);
+void notice_tok(SlimccOptions *opts, Token *tok, char *fmt, ...) FMTCHK(3, 4);
+void verror_at_tok(SlimccOptions *opts, Token *tok, char *fmt, va_list ap);
+bool equal(Token *tok, char *op);
+bool equal_ext(Token *tok, char *op);
+Token *skip(SlimccOptions *opts, Token *tok, char *op);
+bool consume(Token **rest, Token *tok, char *str);
+Token *tokenize_file(SlimccTokenizeCtx *tctx, char *path, Token *tok, Token **end);
+File *new_file(SlimccTokenizeCtx *tctx, char *name, char *contents);
+int add_display_file(SlimccTokenizeCtx *tctx, char *path);
+void tokenize_string_literal(SlimccTokenizeCtx *tctx, Token *tok, Type *basety);
+Token *tokenize(SlimccTokenizeCtx *tctx, File *file, SlashDelta *delta, Token **end);
+void convert_pp_number(SlimccOptions *opts, Token *tok, Node *node);
+TokenKind ident_keyword(SlimccOptions *opts, Token *tok);
+void convert_ucn_ident(SlimccOptions *opts, Token *tok);
+
 typedef struct {
   Obj *var;
   Type *type_def;
@@ -177,7 +197,7 @@ struct FuncContext {
 
 static bool is_type_kw(TokenKind kind);
 static bool is_typename(ParseCtx *pctx, Token *tok);
-static bool comma_list(Token **rest, Token **tok_rest, char *end, bool skip_comma);
+static bool comma_list(SlimccOptions *opts, Token **rest, Token **tok_rest, char *end, bool skip_comma);
 static Type *typename(ParseCtx *pctx, Token **rest, Token *tok);
 static Type *typename2(ParseCtx *pctx, Token **rest, Token *tok, VarAttr *attr);
 static Type *enum_specifier(ParseCtx *pctx, Token **rest, Token *tok);
@@ -411,7 +431,7 @@ static Node *new_size_t(SlimccCtx *sctx, int64_t val, Token *tok) {
 
 static Node *base_size(SlimccCtx *sctx, Type *base, Token *tok) {
   if (base->size < 0)
-    error_tok(tok, "pointer has incomplete type");
+    error_tok(sctx->opts, tok, "pointer has incomplete type");
   return new_size_t(sctx, base->size, tok);
 }
 
@@ -478,7 +498,7 @@ Node *new_cast(SlimccCtx *sctx, Node *expr, Type *ty) {
   ty = unqual(ty);
 
   if (invalid_cast(sctx->opts, expr, ty))
-    error_tok(expr->tok, "invalid cast");
+    error_tok(sctx->opts, expr->tok, "invalid cast");
 
   if (ty->kind == TY_BOOL) {
     Node *n = expr;
@@ -555,7 +575,7 @@ static void prepare_array_init(ParseCtx *pctx, Initializer *init, Type *ty) {
     init->list.data = calloc(init->list.cnt, sizeof(Initializer));
 
     int32_t i = 0;
-    for (; comma_list(&t, &t, "}", i); i++) {
+    for (; comma_list(pctx->opts, &t, &t, "}", i); i++) {
       if (i >= init->list.cnt)
         break;
       init->list.data[i].kind = INIT_TOK;
@@ -641,7 +661,7 @@ static VarScope *push_var_scope(ParseCtx *pctx, char *key, int keylen, Obj *var)
 static void push_var_name2(ParseCtx *pctx, char *key, int keylen, Token *tok, Obj *var) {
   VarScope *vsc = push_var_scope(pctx, key, keylen, var);
   if (vsc)
-    error_tok(tok, "redeclaration of '%.*s'", keylen, key);
+    error_tok(pctx->opts, tok, "redeclaration of '%.*s'", keylen, key);
 }
 
 static void push_var_name(ParseCtx *pctx, Token *name, Obj *var) {
@@ -651,7 +671,7 @@ static void push_var_name(ParseCtx *pctx, Token *name, Obj *var) {
 static void push_gvar_name(ParseCtx *pctx, Token *name, Obj *var) {
   VarScope *vsc = push_var_scope(pctx, name->loc, name->len, var);
   if (vsc && var != vsc->var)
-    error_tok(name, "invalid redefinition of '%.*s'", name->len, name->loc);
+    error_tok(pctx->opts, name, "invalid redefinition of '%.*s'", name->len, name->loc);
 }
 
 static Obj *alloc_ast_var(Type *ty) {
@@ -727,9 +747,9 @@ static DeferStmt *new_defr(ParseCtx *pctx, DeferKind kind) {
   return defr;
 }
 
-static char *get_ident(Token *tok) {
+static char *get_ident(SlimccOptions *opts, Token *tok) {
   if (tok->kind != TK_IDENT)
-    error_tok(tok, "expected an identifier");
+    error_tok(opts, tok, "expected an identifier");
   return strndup(tok->loc, tok->len);
 }
 
@@ -742,26 +762,26 @@ static VarScope *find_typedef(ParseCtx *pctx, Token *tok) {
   return NULL;
 }
 
-static Token *ident_tok(Token **rest, Token *tok) {
+static Token *ident_tok(SlimccOptions *opts, Token **rest, Token *tok) {
   if (tok->kind != TK_IDENT)
-    error_tok(tok, "expected an identifier");
+    error_tok(opts, tok, "expected an identifier");
   *rest = tok->next;
   return tok;
 }
 
-static Token *str_tok(Token **rest, Token *tok) {
+static Token *str_tok(SlimccOptions *opts, Token **rest, Token *tok) {
   if (tok->kind != TK_STR)
-    error_tok(tok, "expected string literal");
+    error_tok(opts, tok, "expected string literal");
   *rest = tok->next;
   return tok;
 }
 
-static void assembler_name(Token **rest, Token *tok, Obj *var) {
+static void assembler_name(SlimccOptions *opts, Token **rest, Token *tok, Obj *var) {
   if (tok->kind == TK_asm) {
-    char *str = str_tok(&tok, skip(tok->next, "("))->str;
-    *rest = skip(tok, ")");
+    char *str = str_tok(opts, &tok, skip(opts, tok->next, "("))->str;
+    *rest = skip(opts, tok, ")");
     if (var->asm_name && strcmp(var->asm_name, str))
-      error_tok(tok, "conflict of asm name");
+      error_tok(opts, tok, "conflict of asm name");
     var->asm_name = str;
   }
 }
@@ -771,13 +791,13 @@ static void chain_expr(SlimccCtx *sctx, Node **lhs, Node *rhs) {
     *lhs = !*lhs ? rhs : new_binary(sctx, ND_CHAIN, *lhs, rhs, rhs->tok);
 }
 
-static bool comma_list(Token **rest, Token **tok_rest, char *end, bool skip_comma) {
+static bool comma_list(SlimccOptions *opts, Token **rest, Token **tok_rest, char *end, bool skip_comma) {
   Token *tok = *tok_rest;
   if (consume(rest, tok, end))
     return false;
 
   if (skip_comma) {
-    tok = skip(tok, ",");
+    tok = skip(opts, tok, ",");
 
     // curly brackets allow trailing comma
     if (!strcmp(end, "}") && consume(rest, tok, "}"))
@@ -802,9 +822,9 @@ static void pragma_pack_push(void) {
     pragma_pack_push();
 }
 
-static void pragma_pack_pop(Token *tok) {
+static void pragma_pack_pop(SlimccOptions *opts, Token *tok) {
   if (pack_stk.cnt <= 1) {
-    warn_tok(tok, "#pragma pack() stack empty");
+    warn_tok(opts, tok, "#pragma pack() stack empty");
     return;
   }
   pack_stk.cnt--;
@@ -820,10 +840,10 @@ static void pragma_pack_set(int val) {
 
 static bool pragma_pack(ParseCtx *pctx, Token **rest, Token *tok) {
   if (is_pragma(&tok, tok) && consume(&tok, tok, "pack")) {
-    tok = skip(tok, "(");
+    tok = skip(pctx->opts, tok, "(");
     if (equal(tok, "pop")) {
-      pragma_pack_pop(tok);
-      *rest = skip_line(skip(tok->next, ")"));
+      pragma_pack_pop(pctx->opts, tok);
+      *rest = skip_line(skip(pctx->opts, tok->next, ")"));
       return true;
     }
     if (equal(tok, "push")) {
@@ -832,10 +852,10 @@ static bool pragma_pack(ParseCtx *pctx, Token **rest, Token *tok) {
         *rest = skip_line(tok);
         return true;
       }
-      tok = skip(tok->next, ",");
+      tok = skip(pctx->opts, tok->next, ",");
     }
     pragma_pack_set(equal(tok, ")") ? 0 : align_expr(pctx, &tok, tok));
-    *rest = skip_line(skip(tok, ")"));
+    *rest = skip_line(skip(pctx->opts, tok, ")"));
     return true;
   }
   return false;
@@ -865,27 +885,27 @@ static void attr_aligned(ParseCtx *pctx, Token *loc, TokenKind kind, int *align)
   }
 }
 
-static void attr_cleanup(ParseCtx *pctx,Token *loc, TokenKind kind, Obj **fn) {
+static void attr_cleanup(ParseCtx *pctx, Token *loc, TokenKind kind, Obj **fn) {
   if (*fn)
     return;
   for (Token *tok = loc->attr_next; tok; tok = tok->attr_next) {
     if (tok->kind != kind)
       continue;
     if (equal_ext(tok, "cleanup")) {
-      VarScope *sc = find_var(pctx, skip(tok->next, "("));
+      VarScope *sc = find_var(pctx, skip(pctx->opts, tok->next, "("));
       if (!(sc && sc->var && sc->var->ty->kind == TY_FUNC))
-        error_tok(tok, "cleanup function not found");
+        error_tok(pctx->opts, tok, "cleanup function not found");
       *fn = sc->var;
       return;
     }
   }
 }
 
-static void apply_cdtor_attr(char *attr_name, Token *tok, bool *is_cdtor,
+static void apply_cdtor_attr(SlimccOptions *opts, char *attr_name, Token *tok, bool *is_cdtor,
                              uint16_t *priority, uint16_t pri, bool apply) {
   if (apply) {
     if (*is_cdtor && *priority != pri)
-      error_tok(tok, "%s priority conflict", attr_name);
+      error_tok(opts, tok, "%s priority conflict", attr_name);
     *is_cdtor = true;
     *priority = pri;
   }
@@ -915,13 +935,13 @@ static void bool_attr(ParseCtx *pctx, Token *loc, TokenKind kind, char *name, bo
   }
 }
 
-static void apply_str_attr(char *attr_name, Token *tok, char **var_str, char *attr_str) {
+static void apply_str_attr(SlimccOptions *opts, char *attr_name, Token *tok, char **var_str, char *attr_str) {
   if (!*var_str) {
     *var_str = attr_str;
     return;
   }
   if (attr_str && strcmp(*var_str, attr_str))
-    error_tok(tok, "conflict of attribute \'%s\'", attr_name);
+    error_tok(opts, tok, "conflict of attribute \'%s\'", attr_name);
 }
 
 static void str_attr(ParseCtx *pctx, Token *loc, TokenKind kind, char *name, char **str) {
@@ -1281,7 +1301,7 @@ static Type *func_params(ParseCtx *pctx, Token **rest, Token *tok, Type *rtn_ty,
 
     Token *start = tok;
     if (!is_def) {
-      while (comma_list(rest, &tok, ")", tok != start))
+      while (comma_list(pctx->opts, rest, &tok, ")", tok != start))
         ident_tok(&tok, tok);
       return fn_ty;
     }

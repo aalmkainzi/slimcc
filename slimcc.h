@@ -290,25 +290,28 @@ struct Token {
   ANON_UNION_END
 };
 
+typedef struct SlimccOptions SlimccOptions;
+typedef struct SlimccTokenizeCtx SlimccTokenizeCtx;
+
 void error(char *fmt, ...) FMTCHK(1, 2) NORETURN;
 void error_ice(char *file, int32_t line) NORETURN;
-void error_at(char *loc, char *fmt, ...) FMTCHK(2, 3) NORETURN;
-void error_tok(Token *tok, char *fmt, ...) FMTCHK(2, 3) NORETURN;
-void warn_tok(Token *tok, char *fmt, ...) FMTCHK(2, 3);
-void notice_tok(Token *tok, char *fmt, ...) FMTCHK(2, 3);
-void verror_at_tok(Token *tok, char *fmt, va_list ap);
+void error_at(SlimccTokenizeCtx *tctx, char *loc, char *fmt, ...) FMTCHK(3, 4) NORETURN;
+void error_tok(SlimccOptions *opts, Token *tok, char *fmt, ...) FMTCHK(3, 4) NORETURN;
+void warn_tok(SlimccOptions *opts, Token *tok, char *fmt, ...) FMTCHK(3, 4);
+void notice_tok(SlimccOptions *opts, Token *tok, char *fmt, ...) FMTCHK(3, 4);
+void verror_at_tok(SlimccOptions *opts, Token *tok, char *fmt, va_list ap);
 bool equal(Token *tok, char *op);
 bool equal_ext(Token *tok, char *op);
-Token *skip(Token *tok, char *op);
+Token *skip(SlimccOptions *opts, Token *tok, char *op);
 bool consume(Token **rest, Token *tok, char *str);
-Token *tokenize_file(char *path, Token *tok, Token **end);
-File *new_file(char *name, char *contents);
-int add_display_file(char *path);
-void tokenize_string_literal(Token *tok, Type *basety);
-Token *tokenize(File *file, SlashDelta *delta, Token **end);
-void convert_pp_number(Token *tok, Node *node);
-TokenKind ident_keyword(Token *tok);
-void convert_ucn_ident(Token *tok);
+Token *tokenize_file(SlimccTokenizeCtx *tctx, char *path, Token *tok, Token **end);
+File *new_file(SlimccTokenizeCtx *tctx, char *name, char *contents);
+int add_display_file(SlimccTokenizeCtx *tctx, char *path);
+void tokenize_string_literal(SlimccTokenizeCtx *tctx, Token *tok, Type *basety);
+Token *tokenize(SlimccTokenizeCtx *tctx, File *file, SlashDelta *delta, Token **end);
+void convert_pp_number(SlimccOptions *opts, Token *tok, Node *node);
+TokenKind ident_keyword(SlimccOptions *opts, Token *tok);
+void convert_ucn_ident(SlimccOptions *opts, Token *tok);
 
 #define internal_error() error_ice(__FILE__, __LINE__)
 
@@ -688,7 +691,7 @@ int64_t const_expr(ParseCtx *pctx, Token **rest, Token *tok);
 int64_t eval_sign_extend(Type *ty, int64_t val);
 void eval_fp(ParseCtx*, Node *node, FPVal *fval);
 Obj *parse(ParseCtx *pctx, Token *tok);
-Token *skip_paren(Token *tok);
+Token *skip_paren(SlimccOptions *opts, Token *tok);
 Obj *new_lvar(ParseCtx*, Type *ty);
 bool is_const_var(Obj *var);
 bool is_const_expr(ParseCtx*, Node *node, int64_t *val);
