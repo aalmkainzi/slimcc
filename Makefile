@@ -8,17 +8,17 @@ ifeq ($(filter cl cl.exe,$(notdir $(CC))),)
     OBJEXT = o
     LIBTARGET = libslimcc.a
     AR = ar
-    ARFLAGS = rcs
+    ARFLAGS = rcs $(LIBTARGET)
     CFLAGS ?= -g
-    COMPILE.c = $(CC) $(CFLAGS) -c $< -o $@
+    COMPILE.c = $(CC) $(CFLAGS) -c $< -o $@ $(LDFLAGS)
 else
     # MSVC style
     OBJEXT = obj
     LIBTARGET = libslimcc.lib
     AR = lib.exe
     ARFLAGS = /nologo /out:$(LIBTARGET)
-    CFLAGS ?= /Zi
-    COMPILE.c = $(CC) /nologo /c $(CFLAGS) /Fo$@ $<
+    CFLAGS ?= /MDd /Zi /RTC1
+    COMPILE.c = $(CC) /nologo /c $(CFLAGS) /Fo$@ $< $(LDFLAGS)
 endif
 
 OBJS = $(SRCS:.c=.$(OBJEXT))

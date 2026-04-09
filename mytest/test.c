@@ -1,30 +1,32 @@
 #include "../slimcc_lib.h"
 #include <cgs/cgs.c>
 
-constexpr float FLOAT = 10;
+CGS_StrView tok2view(Slimcc_Token *t)
+{
+    return (CGS_StrView){.chars = t->loc, .len = t->len};
+}
 
-typedef struct [[Component]] FOO
+struct [[Component]] FOO
 {
     int i;
-} FOO;
+};
 
 struct [[Component]] BAR
 {
     int i;
 };
 
-CGS_StrView tok2view(Slimcc_Token *t)
-{
-    return (CGS_StrView){.chars = t->loc, .len = t->len};
-}
-
 int main()
 {
     FILE *f = fopen("test.c", "r");
     CGS_DStr file_data = cgs_dstr_init();
     cgs_fread_until(&file_data, f, EOF);
-    
-    Slimcc_AST ast = slimcc_get_ast(2, (char*[]){"test", "-I/usr/lib/gcc/x86_64-linux-gnu/13/include/"}, "test.c", file_data.chars, 0);
+#ifdef _WIN32
+    #define AST_ARGS 3, (char*[]){"test", "-isystem", "C:/Users/aa.almkainzi/DevTools/w64devkit/include"}
+#else
+    #define AST_ARGS 2, (char*[]){"test", "-I/usr/lib/gcc/x86_64-linux-gnu/13/include/"}
+#endif
+    Slimcc_AST ast = slimcc_get_ast(AST_ARGS, "test.c", file_data.chars, 0);
     int c = 0;
     for(int i = 0 ; i < ast.n_gtags ; i++)
     {
@@ -35,5 +37,6 @@ int main()
             c++;
         }
     }
-    cgs_println("printed: ", c);
+    void *p = malloc(64);
+    printf("printed: %d\n", c);
 }

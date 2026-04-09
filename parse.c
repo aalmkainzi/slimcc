@@ -5792,10 +5792,6 @@ Obj *parse(SlimccCtx *pctx, Token *tok) {
 
     VarAttr attr = {0};
     Type *basety = declspec(pctx, &tok, tok, &attr, SC_ALL);
-
-    if(attr.strg == SC_TYPEDEF)
-    {
-    }
     
     if (attr.strg & SC_TYPEDEF) {
       parse_typedef(pctx, &tok, tok, basety, &attr);

@@ -1,13 +1,17 @@
 #include "slimcc.h"
 
 void platform_init(SlimccCtx *ppctx) {
+#ifdef _WIN32
+  define_macro(ppctx, "_WIN32", "1");
+  define_macro(ppctx, "__GNUC__", "15");
+#else
   define_macro(ppctx, "__ELF__", "1");
 
   define_macro(ppctx, "linux", "1");
   define_macro(ppctx, "__linux", "1");
   define_macro(ppctx, "__linux__", "1");
   define_macro(ppctx, "__gnu_linux__", "1");
-
+#endif
   init_ty_lp64(ppctx);
 }
 

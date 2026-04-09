@@ -477,7 +477,7 @@ Slimcc_AST slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_
   HashMap gtags_map = sctx.scope->tags;
   Type **gtags = calloc(gtags_map.used, sizeof(Type*));
   size_t gtags_count = 0;
-  for(size_t i = 0 ; i < gtags_map.used ; i++)
+  for(size_t i = 0 ; i < gtags_map.capacity ; i++)
   {
     HashEntry ent = gtags_map.buckets[i];
     if(ent.key != NULL && ent.key != (void*)-1)
@@ -489,7 +489,7 @@ Slimcc_AST slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_
   HashMap gvars_map = sctx.scope->vars;
   VarScope **gvars = calloc(gvars_map.used, sizeof(VarScope*));
   size_t gvars_count = 0;
-  for(size_t i = 0 ; i < gvars_map.used ; i++)
+  for(size_t i = 0 ; i < gvars_map.capacity ; i++)
   {
     HashEntry ent = gvars_map.buckets[i];
     if(ent.key != NULL && ent.key != (void*)-1)
