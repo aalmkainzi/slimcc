@@ -17,13 +17,7 @@ struct Pool {
 };
 
 bool check_mem_usage(void) {
-#if USE_ASAN || defined(__FILC__)
-  return true;
-#else
-  struct rusage stat;
-  getrusage(RUSAGE_SELF, &stat);
-  return stat.ru_maxrss > FREE_THRESHOLD;
-#endif
+  return false;
 }
 
 static Pool *new_pool(SlimccCtx *sctx) {

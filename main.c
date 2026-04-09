@@ -1,5 +1,25 @@
 #include "slimcc.h"
 
+#ifdef _WIN32
+
+#include <io.h>
+
+bool file_exists(char *path)
+{
+  return _access(path, 0) == 0;
+}
+
+#else
+#include <unistd.h>
+
+bool file_exists(char *path)
+{
+  return access(path, F_OK) == 0;
+}
+
+#endif
+
+
 typedef enum {
   FILE_NONE = 0,
   FILE_C,
@@ -35,37 +55,6 @@ static bool take_arg(char **argv, int *i, char **arg, char *opt) {
 
 static bool take_arg_s(char **argv, int *i, char **p, char *str) {
   return take_arg(argv, i, p, str) || startswith(argv[*i], p, str);
-}
-
-static bool comma_arg(char *arg, StringArray *arr, char *str) {
-  if (startswith(arg, &arg, str)) {
-    arg = strtok(strdup(arg), ",");
-    while (arg) {
-      strarray_push(arr, arg);
-      arg = strtok(NULL, ",");
-    }
-    return true;
-  }
-  return false;
-}
-
-void add_include_path(StringArray *arr, char *path) {
-  size_t orig_len = strlen(path);
-  size_t len = orig_len;
-
-  while (len > 1 && path[len - 1] == '/')
-    len--;
-
-  for (int i = 0; i < arr->len; i++) {
-    char *s2 = arr->data[i];
-    if (!strncmp(s2, path, len) && s2[len] == '\0')
-      return;
-  }
-
-  if (len != orig_len)
-    path = strndup(path, len);
-
-  strarray_push(arr, path);
 }
 
 static FileType parse_opt_x(char *s) {
@@ -173,6 +162,25 @@ static char *quote_makefile(char *s) {
     }
   }
   return buf;
+}
+
+void add_include_path(StringArray *arr, char *path) {
+    size_t orig_len = strlen(path);
+    size_t len = orig_len;
+
+    while (len > 1 && path[len - 1] == '/')
+      len--;
+
+    for (int i = 0; i < arr->len; i++) {
+      char *s2 = arr->data[i];
+      if (!strncmp(s2, path, len) && s2[len] == '\0')
+        return;
+    }
+
+    if (len != orig_len)
+      path = string_dup(path, len);
+
+    strarray_push(arr, path);
 }
 
 static void build_incl_paths(SlimccCtx *opts, char *opt_B, bool opt_nostdinc, StringArray *isystem,
@@ -497,9 +505,4 @@ Slimcc_AST slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_
   ret.n_gvars = gvars_count;
   
   return ret;
-}
-
-bool file_exists(char *path) {
-  struct stat st;
-  return !stat(path, &st);
 }

@@ -187,7 +187,7 @@ void eval_bitint_bitfield_save(int32_t bits, void *sp, void *dp, int32_t width,
   int32_t cnt = (bits + 63) / 64;
   int32_t full_bits = cnt * 64;
 
-  uint64_t mb[cnt], sb[cnt];
+  uint64_t *mb = malloc(cnt * sizeof(uint64_t)), *sb = malloc(cnt * sizeof(uint64_t));
   for (int32_t i = 0; i < cnt; i++)
     mb[i] = -1;
 
@@ -204,6 +204,9 @@ void eval_bitint_bitfield_save(int32_t bits, void *sp, void *dp, int32_t width,
 
   for (int32_t j = ofs / 8; j <= top; j++)
     dst[j] = (dst[j] & msk[j]) | src[j];
+  
+  free(mb);
+  free(sb);
 }
 
 void eval_bitint_add(int32_t bits, void *lp, void *rp) {
@@ -234,7 +237,7 @@ void eval_bitint_mul(int32_t bits, void *lp, void *rp) {
   int32_t cnt = (bits + 31) / 32;
   uint32_t *lh = lp, *rh = rp;
 
-  uint32_t buf[cnt];
+  uint32_t *buf = malloc(cnt * sizeof(uint32_t));
 
   uint64_t accum = 0;
   for (int32_t i = 0; i < cnt; i++) {
@@ -248,14 +251,16 @@ void eval_bitint_mul(int32_t bits, void *lp, void *rp) {
   }
   for (int32_t j = 0; j < cnt; j++)
     rh[j] = buf[j];
+  
+  free(buf);
 }
 
 void eval_bitint_div(int32_t bits, void *lp, void *rp, bool is_unsigned, bool is_div) {
   int32_t cnt = (bits + 63) / 64 * 2;
   uint32_t *lh = lp, *rh = rp;
 
-  uint32_t r_buf[cnt + 2];
-  uint32_t q_buf[cnt];
+  uint32_t *r_buf = malloc((cnt + 2) * sizeof(uint32_t));
+  uint32_t *q_buf = malloc(cnt * sizeof(uint32_t));
 
   for (int32_t i = 0; i < cnt; i++) {
     r_buf[i] = lh[i];

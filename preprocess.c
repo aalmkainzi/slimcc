@@ -1,4 +1,46 @@
 #include "slimcc.h"
+#include <sys/stat.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <pathcch.h>  // PathCchRemoveFileSpec
+#include <string.h>
+#pragma comment(lib, "Pathcch.lib")
+
+#define realpath(p, n) _fullpath(n, p, 0)
+
+char *dirname(char *path) {
+  static char buffer[MAX_PATH];
+  
+  if (path == NULL || *path == '\0') {
+    buffer[0] = '.';
+    buffer[1] = '\0';
+    return buffer;
+  }
+  
+  strncpy(buffer, path, MAX_PATH - 1);
+  buffer[MAX_PATH - 1] = '\0';
+  
+  wchar_t wbuffer[MAX_PATH];
+  MultiByteToWideChar(CP_UTF8, 0, buffer, -1, wbuffer, MAX_PATH);
+  
+  HRESULT hr = PathCchRemoveFileSpec(wbuffer, MAX_PATH);
+  
+  if (FAILED(hr) || wbuffer[0] == '\0') {
+    buffer[0] = '.';
+    buffer[1] = '\0';
+  } else {
+    WideCharToMultiByte(CP_UTF8, 0, wbuffer, -1, buffer, MAX_PATH, NULL, NULL);
+  }
+  
+  strncpy(path, buffer, MAX_PATH - 1);
+  path[MAX_PATH - 1] = '\0';
+  
+  return buffer;
+}
+#else
+#include <libgen.h>
+#endif
 
 typedef struct {
   Token *tok;
@@ -450,7 +492,7 @@ static Macro *new_funclike_macro(SlimccCtx *sctx, char *name, Token **rest, Toke
 static Macro *read_macro_name(SlimccCtx *sctx, Token **rest, Token *tok) {
   if (tok->kind != TK_IDENT)
     error_tok(sctx, tok, "macro name must be an identifier");
-  char *name = strndup(tok->loc, tok->len);
+  char *name = string_dup(tok->loc, tok->len);
   tok = tok->next;
 
   Macro *m;
@@ -1051,7 +1093,7 @@ static char *read_filename(SlimccCtx *sctx, Token **rest, Token *tok, char **dir
     // For example, "\f" in "C:\foo" is not a formfeed character but
     // just two non-control characters, backslash and f.
     // So we don't want to use token->str.
-    filename = strndup(tok->loc + 1, tok->len - 2);
+    filename = string_dup(tok->loc + 1, tok->len - 2);
     *dir = (tok->origin ? tok->origin : tok)->file->name;
   } else if (equal(tok, "<")) {
     // Pattern 2: #include <foo.h>
@@ -1064,7 +1106,7 @@ static char *read_filename(SlimccCtx *sctx, Token **rest, Token *tok, char **dir
         error_tok(sctx, tok, "expected '>'");
 
     if (!is_expanded && start->file == tok->file && start->loc < tok->loc)
-      filename = strndup(start->loc + 1, tok->loc - start->loc - 1);
+      filename = string_dup(start->loc + 1, tok->loc - start->loc - 1);
     else
       filename = join_tokens(sctx, start->next, tok, false);
   }
@@ -1324,7 +1366,7 @@ static Token *directives(SlimccCtx *sctx, Token **cur, Token *start) {
     tok = tok->next;
     if (tok->kind != TK_IDENT)
       error_tok(sctx, tok, "macro name must be an identifier");
-    undef_macro(sctx, strndup(tok->loc, tok->len));
+    undef_macro(sctx, string_dup(tok->loc, tok->len));
     return skip_line(sctx, tok->next);
   }
 
@@ -1414,7 +1456,7 @@ static Token *directives(SlimccCtx *sctx, Token **cur, Token *start) {
 
     if (tok->is_incl_guard && cond->tok->is_incl_guard && tok->file == cond->tok->file) {
       Token *name_tok = cond->tok->next;
-      char *guard_name = strndup(name_tok->loc, name_tok->len);
+      char *guard_name = string_dup(name_tok->loc, name_tok->len);
       hashmap_put(&sctx->include_guards, tok->file->name, guard_name);
     }
 
@@ -1561,10 +1603,20 @@ static Token *timestamp_macro(SlimccCtx *sctx, Token *start) {
     if (stat(start->file->name, &st) != 0) {
       str = "\"??? ??? ?? ??:??:?? ????\"";
     } else {
+      #ifdef _WIN32
+      if (ctime_s(&buf[1], sizeof(buf) - 1, &st.st_mtime) != 0) {
+        str = "\"??? ??? ?? ??:??:?? ????\"";
+      } else {
+        buf[0] = buf[25] = '\"';
+        buf[26] = '\0';
+        str = buf;
+      }
+      #else
       ctime_r(&st.st_mtime, &buf[1]);
       buf[0] = buf[25] = '\"';
       buf[26] = '\0';
       str = buf;
+      #endif
     }
   }
   return make_token(sctx, str, start, start->next);

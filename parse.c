@@ -709,7 +709,7 @@ static DeferStmt *new_defr(SlimccCtx *pctx, DeferKind kind) {
 static char *get_ident(SlimccCtx *opts, Token *tok) {
   if (tok->kind != TK_IDENT)
     error_tok(opts, tok, "expected an identifier");
-  return strndup(tok->loc, tok->len);
+  return string_dup(tok->loc, tok->len);
 }
 
 static VarScope *find_typedef(SlimccCtx *pctx, Token *tok) {

@@ -1,11 +1,11 @@
 #ifndef SLIMCC_H
 #define SLIMCC_H
 
-#define _XOPEN_SOURCE 700
+#define _CRT_DECLARE_NONSTDC_NAMES 1
+
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
-#include <libgen.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
@@ -14,11 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/resource.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
 #include <time.h>
-#include <unistd.h>
 #include "slimcc_lib.h"
 
 #if defined(__SANITIZE_ADDRESS__)
@@ -46,6 +42,8 @@
 #if defined(__GNUC__) && (__GNUC__ >= 3)
 # define FMTCHK(x, y) __attribute__((format(printf, (x), (y))))
 # define NORETURN __attribute__((noreturn))
+#elif defined(_WIN32)
+#define NORETURN __declspec(noreturn)
 #elif defined(__has_attribute)
 # if __has_attribute(format)
 #  define FMTCHK(x, y) __attribute__((format(printf, (x), (y))))
@@ -171,10 +169,10 @@ char *format(char *fmt, ...) FMTCHK(1, 2);
 // tokenize.c
 //
 
-void error(char *fmt, ...) FMTCHK(1, 2) NORETURN;
-void error_ice(char *file, int32_t line) NORETURN;
-void error_at(SlimccCtx *sctx, char *loc, char *fmt, ...) FMTCHK(3, 4) NORETURN;
-void error_tok(SlimccCtx *sctx, Token *tok, char *fmt, ...) FMTCHK(3, 4) NORETURN;
+NORETURN void error(char *fmt, ...) FMTCHK(1, 2) ;
+NORETURN void error_ice(char *file, int32_t line) ;
+NORETURN void error_at(SlimccCtx *sctx, char *loc, char *fmt, ...) FMTCHK(3, 4) ;
+NORETURN void error_tok(SlimccCtx *sctx, Token *tok, char *fmt, ...) FMTCHK(3, 4) ;
 void warn_tok(SlimccCtx *sctx, Token *tok, char *fmt, ...) FMTCHK(3, 4);
 void notice_tok(SlimccCtx *sctx, Token *tok, char *fmt, ...) FMTCHK(3, 4);
 void verror_at_tok(SlimccCtx *sctx, Token *tok, char *fmt, va_list ap);
@@ -456,6 +454,19 @@ void add_include_path(StringArray *arr, char *s);
 void run_assembler_gnustyle(StringArray *as_args, char *input, char *output);
 void run_linker_gnustyle(StringArray *paths, StringArray *inputs, char *output,
                          char *ldso_path, char *libpath, char *gcclibpath);
+
+static char *string_dup(const char *s, size_t n)
+{
+  size_t len = strnlen(s, n);
+  
+  char *ret = malloc(len + 1);
+  if (!ret) return NULL;
+  
+  memcpy(ret, s, len);
+  ret[len] = '\0';
+  
+  return ret;
+}
 
 extern Type *ty_void;
 extern Type *ty_bool;

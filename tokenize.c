@@ -451,7 +451,7 @@ static Token *asm_string_literal(SlimccCtx *tctx, char *p, char end) {
     p++;
   }
   Token *tok = new_token(tctx, TK_ASM_STR, start, p + is_closed);
-  tok->str = strndup(start + 1, p - start - 1);
+  tok->str = string_dup(start + 1, p - start - 1);
   return tok;
 }
 
@@ -1070,6 +1070,47 @@ Token *tokenize_file_data(SlimccCtx *tctx, char *path, char *buf, Token *tok, To
   return tokenize(tctx, new_file(tctx, path, buf), &dlt, end);
 }
 
+static char *read_entire_file(FILE *f, size_t *out_len)
+{
+  char *buf = NULL;
+  size_t len = 0;
+  size_t cap = 0;
+  
+  for (;;) {
+    if (len == cap) {
+      cap = cap ? cap * 2 : 4096;
+      char *tmp = realloc(buf, cap);
+      if (!tmp) {
+        free(buf);
+        return NULL;
+      }
+      buf = tmp;
+    }
+    
+    size_t nread = fread(buf + len, 1, cap - len, f);
+    len += nread;
+    
+    if (nread == 0) {
+      if (ferror(f)) {
+        free(buf);
+        return NULL;
+      }
+      break;
+    }
+  }
+  
+  char *tmp = realloc(buf, len + 1);
+  if (!tmp) {
+    free(buf);
+    return NULL;
+  }
+  buf = tmp;
+  buf[len] = '\0';
+  
+  if (out_len) *out_len = len;
+  return buf;
+}
+
 Token *tokenize_file(SlimccCtx *tctx, char *path, Token *tok, Token **end) {
   FILE *fp;
 
@@ -1085,28 +1126,17 @@ Token *tokenize_file(SlimccCtx *tctx, char *path, Token *tok, Token **end) {
     }
   }
 
-  char *buf;
   size_t buflen;
-  FILE *out = open_memstream(&buf, &buflen);
-
-  // Read the entire file.
-  for (;;) {
-    char buf2[4096];
-    int n = fread(buf2, 1, sizeof(buf2), fp);
-    if (n == 0)
-      break;
-    fwrite(buf2, 1, n, out);
-  }
+  char *buf = read_entire_file(fp, &buflen);
 
   if (fp != stdin)
     fclose(fp);
+  
+  buf = realloc(buf, buflen + 32);
 
-  // Make sure that the last line is properly terminated with '\n'.
-  fflush(out);
   if (buflen == 0 || buf[buflen - 1] != '\n')
-    fputc('\n', out);
-  fputc('\0', out);
-  fclose(out);
+    buf[buflen++] = '\n';
+  buf[buflen++] = '\0';
 
   return tokenize_file_data(tctx, path, buf, tok, end);
 }
