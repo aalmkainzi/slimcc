@@ -81,12 +81,27 @@
 # define BUFF_CAST(_t, _ptr) (*((_t *)(_ptr)))
 #endif
 
-typedef struct Type Type;
-typedef struct Node Node;
-typedef struct Member Member;
-typedef struct Relocation Relocation;
+#define Type Slimcc_Type
+#define Node Slimcc_Node
+#define Token Slimcc_Token
+#define Member Slimcc_Member
+#define Relocation Slimcc_Relocation
+#define EnumVal Slimcc_EnumVal
+#define File Slimcc_File
+#define TokenKind Slimcc_TokenKind
+#define Obj Slimcc_Obj
+#define QualMask Slimcc_QualMask
+#define TypeKind Slimcc_TypeKind
+#define NodeKind Slimcc_NodeKind
+#define Scope Slimcc_Scope
+#define DeferStmt Slimcc_DeferStmt
+#define VarScope Slimcc_VarScope
+#define AsmParam Slimcc_AsmParam
+#define CaseRange Slimcc_CaseRange
+#define InclIdx Slimcc_InclIdx
+#define FuncObj Slimcc_FuncObj
+
 typedef struct LocalLabel LocalLabel;
-typedef struct EnumVal EnumVal;
 typedef union FPVal FPVal;
 typedef struct AsmContext AsmContext;
 typedef struct FuncObj FuncObj;
@@ -155,8 +170,6 @@ char *format(char *fmt, ...) FMTCHK(1, 2);
 //
 // tokenize.c
 //
-
-typedef struct Token Token;
 
 void error(char *fmt, ...) FMTCHK(1, 2) NORETURN;
 void error_ice(char *file, int32_t line) NORETURN;

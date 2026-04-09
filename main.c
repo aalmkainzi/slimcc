@@ -444,7 +444,7 @@ bool ignore_missing_dep(SlimccCtx *opts, char *path, char *filename, Token *tok)
 
 struct SlimccReport;
 
-AST slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_data, struct SlimccReport *report)
+Slimcc_AST slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_data, struct SlimccReport *report)
 {
   SlimccCtx sctx = {
     .argv0 = argv[0], .opt_std = STD_C23,
@@ -464,7 +464,7 @@ AST slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_data, s
   
   Obj *prog = parse(&sctx, tok);
   
-  AST ret = {.objects = prog};
+  Slimcc_AST ret = {.objects = prog};
   
   HashMap gtags_map = sctx.scope->tags;
   Type **gtags = calloc(gtags_map.used, sizeof(Type*));
@@ -486,7 +486,7 @@ AST slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_data, s
     HashEntry ent = gvars_map.buckets[i];
     if(ent.key != NULL && ent.key != (void*)-1)
     {
-      gtags[gvars_count++] = ent.val;
+      gvars[gvars_count++] = ent.val;
     }
   }
   
