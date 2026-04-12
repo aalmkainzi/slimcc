@@ -1126,8 +1126,13 @@ static char *read_include_filename(SlimccCtx *sctx, Token *tok, char **dir) {
 }
 
 static Token *include_file(SlimccCtx *sctx, Token *tok, char *path, Token *filename_tok, InclIdx idx) {
-  if (hashmap_get(&sctx->pragma_once, realpath(path, NULL)))
+  char *rp = realpath(path, NULL);
+  if (hashmap_get(&sctx->pragma_once, rp))
+  {
+    free(rp);
     return tok;
+  }
+  free(rp);
 
   char *guard_name = hashmap_get(&sctx->include_guards, path);
   if (guard_name && hashmap_get(&sctx->macros, guard_name))
@@ -2164,6 +2169,14 @@ Token *prepare_parse(SlimccCtx *sctx, Token *tok) {
     free(tmp);
   }
 
+  for(int i = 0 ; i < sctx->include_guards.capacity ; i++)
+  {
+    if(sctx->include_guards.buckets[i].val && sctx->include_guards.buckets[i].val != (void*)-1)
+    {
+      free(sctx->include_guards.buckets[i].val);
+    }
+  }
+  
   free(sctx->macros.buckets);
   free(sctx->pragma_once.buckets);
   free(sctx->include_guards.buckets);

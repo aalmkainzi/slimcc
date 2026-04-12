@@ -1,4 +1,5 @@
 #include "slimcc.h"
+#include "slimcc_lib.h"
 
 #ifdef _WIN32
 
@@ -454,28 +455,31 @@ struct SlimccReport;
 
 Slimcc_AST slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_data, struct SlimccReport *report)
 {
-  SlimccCtx sctx = {
-    .argv0 = argv[0], .opt_std = STD_C23,
-    .scope = calloc(1, sizeof(Scope)),
-    .globals = calloc(1, sizeof(Obj)),
-    .macro_defs = &(MacroDef){0}
+  SlimccCtx *sctx = calloc(1, sizeof(*sctx));
+  
+  {
+    sctx->argv0 = argv[0],
+    sctx->opt_std = STD_C23,
+    sctx->scope = calloc(1, sizeof(Scope)),
+    sctx->globals = calloc(1, sizeof(Obj)),
+    sctx->macro_defs = calloc(1, sizeof(MacroDef));
   };
   
-  init_macros(&sctx);
+  init_macros(sctx);
   
-  platform_init(&sctx);
-  parse_args(&sctx, argc, (char**) argv);
+  platform_init(sctx);
+  parse_args(sctx, argc, (char**) argv);
   
-  build_macros(&sctx, &sctx.macrodefs, 0);
-  Token *tok = preprocess_data(&sctx, (char*) file_name, source_data, &sctx.opt_include, &sctx.opt_imacros);
-  tok = prepare_parse(&sctx, tok);
+  build_macros(sctx, &sctx->macrodefs, 0);
+  Token *tok = preprocess_data(sctx, (char*) file_name, source_data, &sctx->opt_include, &sctx->opt_imacros);
+  tok = prepare_parse(sctx, tok);
   
-  Obj *prog = parse(&sctx, tok);
+  Obj *prog = parse(sctx, tok);
   
   Slimcc_AST ret = {.objects = prog};
   
-  HashMap gtags_map = sctx.scope->tags;
-  Type **gtags = calloc(gtags_map.used, sizeof(Type*));
+  HashMap gtags_map = sctx->scope->tags;
+  Type **gtags = calloc(gtags_map.used, sizeof(*gtags));
   size_t gtags_count = 0;
   for(size_t i = 0 ; i < gtags_map.capacity ; i++)
   {
@@ -486,15 +490,15 @@ Slimcc_AST slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_
     }
   }
   
-  HashMap gvars_map = sctx.scope->vars;
-  VarScope **gvars = calloc(gvars_map.used, sizeof(VarScope*));
+  HashMap gvars_map = sctx->scope->vars;
+  Slimcc_NamedVar *gvars = calloc(gvars_map.used, sizeof(*gvars));
   size_t gvars_count = 0;
   for(size_t i = 0 ; i < gvars_map.capacity ; i++)
   {
     HashEntry ent = gvars_map.buckets[i];
     if(ent.key != NULL && ent.key != (void*)-1)
     {
-      gvars[gvars_count++] = ent.val;
+      gvars[gvars_count++] = (Slimcc_NamedVar){.var = ent.val, .name = ent.key, .name_len = ent.keylen};
     }
   }
   
@@ -503,6 +507,17 @@ Slimcc_AST slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_
   
   ret.n_gtags = gtags_count;
   ret.n_gvars = gvars_count;
+  ret.ctx = sctx;
   
   return ret;
+}
+
+void slimcc_free_ast(Slimcc_AST *ast)
+{
+  SlimccCtx *sctx = ast->ctx;
+  
+  free(ast->gtags);
+  free(ast->gvars);
+  free(sctx->symbols.buckets);
+  free(ast->ctx);
 }

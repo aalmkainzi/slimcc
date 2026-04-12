@@ -30,13 +30,20 @@ typedef struct Slimcc_Token Slimcc_Token;
 typedef struct Slimcc_EnumVal Slimcc_EnumVal;
 typedef struct Slimcc_File Slimcc_File;
 
-typedef struct {
+typedef struct Slimcc_VarScope {
     Slimcc_Obj *var;
     Slimcc_Type *type_def;
     Slimcc_Type *enum_ty;
     int64_t enum_val;
     int32_t type_def_align;
 } Slimcc_VarScope;
+
+typedef struct Slimcc_NamedVar
+{
+  char *name;
+  int name_len;
+  Slimcc_VarScope *var;
+} Slimcc_NamedVar;
 
 typedef enum {
     INCL_ABS = -2,
@@ -491,13 +498,16 @@ typedef struct Slimcc_AST
     Slimcc_Obj *objects;
     
     int n_gvars;
-    Slimcc_VarScope **gvars;
+    Slimcc_NamedVar *gvars;
     
     int n_gtags;
     Slimcc_Type **gtags;
+    
+    void *ctx;
 } Slimcc_AST;
 
 struct SlimccReport;
 Slimcc_AST slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_data, struct SlimccReport *report);
+void slimcc_free_ast(Slimcc_AST *ast);
 
 #endif

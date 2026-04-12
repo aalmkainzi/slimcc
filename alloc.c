@@ -1,13 +1,5 @@
 #include "slimcc.h"
 
-#if USE_ASAN
-# include <sanitizer/asan_interface.h>
-
-__attribute__((visibility("default"))) const char *__asan_default_options(void) {
-  return "detect_leaks=0";
-}
-#endif
-
 #define FREE_THRESHOLD (100 * 1024)
 #define ARENA_POOL_SIZE 8168
 
@@ -29,9 +21,6 @@ static Pool *new_pool(SlimccCtx *sctx) {
     p = malloc(sizeof(Pool));
   }
 
-#if USE_ASAN
-  __asan_poison_memory_region(&p->buf, ARENA_POOL_SIZE);
-#endif
   p->next = NULL;
   return p;
 }
@@ -49,15 +38,10 @@ static void *allocate(SlimccCtx *sctx, Arena *arena, size_t sz, bool clear) {
     arena->used = aligned_sz;
   }
 
-#if USE_ASAN
-  __asan_unpoison_memory_region(ptr, sz);
-  if (clear)
-    memset(ptr, 0, sz);
-#else
+
   if (clear)
     for (int i = 0; i < (aligned_sz >> 3); i++)
       ((int64_t *)ptr)[i] = 0;
-#endif
   return ptr;
 }
 

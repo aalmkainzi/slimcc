@@ -1,3 +1,5 @@
+.PHONY: all clean
+
 CC ?= gcc
 
 SRCS = alloc.c bitint.c codegen.c hashmap.c main.c parse.c platform.c preprocess.c strings.c tokenize.c type.c unicode.c
@@ -10,7 +12,8 @@ ifeq ($(filter cl cl.exe,$(notdir $(CC))),)
     AR = ar
     ARFLAGS = rcs $(LIBTARGET)
     CFLAGS ?= -g
-    COMPILE.c = $(CC) $(CFLAGS) -c $< -o $@ $(LDFLAGS)
+    COMPILE.c = $(CC) $(CFLAGS) -c $< -o $@
+    RM = rm -f *.o *.a
 else
     # MSVC style
     OBJEXT = obj
@@ -18,7 +21,8 @@ else
     AR = lib.exe
     ARFLAGS = /nologo /out:$(LIBTARGET)
     CFLAGS ?= /MDd /Zi /RTC1
-    COMPILE.c = $(CC) /nologo /c $(CFLAGS) /Fo$@ $< $(LDFLAGS)
+    COMPILE.c = $(CC) /nologo /c $(CFLAGS) /Fo$@ $<
+    RM = del /f /q *.obj *.lib *.pdb 2>NUL
 endif
 
 OBJS = $(SRCS:.c=.$(OBJEXT))
@@ -35,10 +39,4 @@ $(LIBTARGET): $(OBJS)
 	$(COMPILE.c)
 
 clean:
-ifeq ($(filter cl cl.exe,$(notdir $(CC))),)
-	rm -f *.o *.a
-else
-	del /f /q *.obj *.lib *.pdb 2>NUL
-endif
-
-.PHONY: all clean
+	$(RM)

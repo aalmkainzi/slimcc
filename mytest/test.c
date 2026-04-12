@@ -28,15 +28,18 @@ int main()
 #endif
     Slimcc_AST ast = slimcc_get_ast(AST_ARGS, "test.c", file_data.chars, 0);
     int c = 0;
-    for(int i = 0 ; i < ast.n_gtags ; i++)
+    for(int i = 0 ; i < ast.n_gvars ; i++)
     {
-        Slimcc_Type *type = ast.gtags[i];
-        if(type && type->tag)
+        Slimcc_NamedVar var = ast.gvars[i];
+        if(var.var->type_def)
         {
-            cgs_println(tok2view(type->tag));
+            CGS_StrView sv = (CGS_StrView){.chars = var.name, .len = var.name_len};
+            cgs_println(sv);
             c++;
         }
     }
-    void *p = malloc(64);
+    
+    slimcc_free_ast(&ast);
     printf("printed: %d\n", c);
+    fflush(stdout);
 }
