@@ -531,7 +531,6 @@ typedef struct SlimccCtx
   StringArray sysincl_paths;
   MacroChangeArr macrodefs;
   int incl_cnt;
-  char *argv0;
   
   // pp ctx
   struct Macro *locked_macros;

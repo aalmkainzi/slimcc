@@ -458,7 +458,6 @@ Slimcc_AST slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_
   SlimccCtx *sctx = calloc(1, sizeof(*sctx));
   
   {
-    sctx->argv0 = argv[0],
     sctx->opt_std = STD_C23,
     sctx->scope = calloc(1, sizeof(Scope)),
     sctx->globals = calloc(1, sizeof(Obj)),
