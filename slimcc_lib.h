@@ -38,6 +38,7 @@ typedef struct Slimcc_VarScope {
     int32_t type_def_align;
 } Slimcc_VarScope;
 
+// TODO instead of this. make Slimcc_VarScope contain a Slimcc_Token* for its name
 typedef struct Slimcc_NamedVar
 {
   char *name;

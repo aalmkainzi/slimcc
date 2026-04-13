@@ -18,6 +18,12 @@ struct [[fjr::component, fjr::update_order(1, 2, 3)]] BAR
     int i;
 };
 
+[[fjr::event]]
+int play_sound()
+{
+    
+}
+
 int main()
 {
     FILE *f = fopen("test.c", "r");
@@ -42,6 +48,16 @@ int main()
             }
             cgs_println(sv);
             c++;
+        }
+    }
+    
+    for(int i = 0 ; i < ast.n_gvars ; i++)
+    {
+        Slimcc_NamedVar var = ast.gvars[i];
+        CGS_StrView sv = {.chars = var.name, .len = var.name_len};
+        if(cgs_equal(sv, "play_sound"))
+        {
+            cgs_println(sv);
         }
     }
     
