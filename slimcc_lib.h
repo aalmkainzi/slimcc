@@ -482,6 +482,10 @@ struct Slimcc_Token {
     int display_line_no;
     int display_file_no;
     Slimcc_Type *ty; // Used if TK_INT_NUM or TK_STR
+
+    Slimcc_Token *attr_vendor;
+    bool attr_supported;
+
     ANON_UNION_START
     Slimcc_Token *attr_next;
     Slimcc_Token *alloc_next;

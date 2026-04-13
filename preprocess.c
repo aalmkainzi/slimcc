@@ -75,7 +75,7 @@ static bool expand_macro(SlimccCtx*,Token **rest, Token *tok, bool is_root);
 static Token *directives(SlimccCtx*,Token **cur, Token *start);
 static Token *subst(SlimccCtx*,Token *tok, MacroContext *ctx);
 static bool is_supported_attr(SlimccCtx*,Token *tok);
-static char *supported_c_attr(SlimccCtx*,Token **rest, Token *tok);
+static char *supported_c_attr(SlimccCtx*,Token **rest, Token *tok, Token **vendor_out);
 static void newline_to_space(SlimccCtx*,Token *tok);
 static Token *pragma_macro(SlimccCtx*,Token *start);
 
@@ -1720,7 +1720,7 @@ static Token *has_attribute_macro(SlimccCtx *sctx, Token *start) {
 static Token *has_c_attribute_macro(SlimccCtx *sctx, Token *start) {
   Token *tok = skip(sctx, start->next, "(");
 
-  char *str = supported_c_attr(sctx, &tok, tok);
+  char *str = supported_c_attr(sctx, &tok, tok, NULL);
 
   tok = skip(sctx, tok->next, ")");
   pop_macro_lock_until(sctx, start, tok);
@@ -1931,12 +1931,14 @@ static bool is_supported_attr(SlimccCtx *sctx, Token *tok) {
   return is_gnu_attr(tok);
 }
 
-static char *supported_c_attr(SlimccCtx *sctx, Token **rest, Token *tok) {
+static char *supported_c_attr(SlimccCtx *sctx, Token **rest, Token *tok, Token **vendor_out) {
   Token *vendor = NULL;
   if (tok->kind == TK_IDENT && equal(tok->next, "::")) {
     vendor = tok;
     tok = tok->next->next;
   }
+  if(vendor_out)
+    *vendor_out = vendor;
   *rest = tok;
 
   if (tok->kind != TK_IDENT)
@@ -1964,8 +1966,9 @@ static void filter_attr(SlimccCtx *sctx, Token *tok, Token **lst, bool is_bracke
       error_tok(sctx, tok, "expected ','");
 
     bool is_supported;
+    Token *vendor = NULL;
     if (is_bracket)
-      is_supported = supported_c_attr(sctx, &tok, tok);
+      is_supported = supported_c_attr(sctx, &tok, tok, &vendor);
     else
       is_supported = is_supported_attr(sctx, tok);
 
@@ -1975,7 +1978,7 @@ static void filter_attr(SlimccCtx *sctx, Token *tok, Token **lst, bool is_bracke
     else
       tok = tok->next;
 
-    if (is_supported) {
+    {
       Token head = {0};
       Token *cur = &head;
       for (Token *t = start; t != tok; t = t->next)
@@ -1984,7 +1987,9 @@ static void filter_attr(SlimccCtx *sctx, Token *tok, Token **lst, bool is_bracke
 
       *lst = (*lst)->attr_next = preprocess3(sctx, head.next);
       (*lst)->kind = is_bracket ? TK_BATTR : TK_ATTR;
+      (*lst)->attr_supported = is_supported;
       (*lst)->attr_next = NULL;
+      (*lst)->attr_vendor = vendor;
     }
   }
 }

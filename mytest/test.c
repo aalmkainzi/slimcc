@@ -8,11 +8,13 @@ CGS_StrView tok2view(Slimcc_Token *t)
 
 struct [[Component]] FOO
 {
+    char *s;
     int i;
 };
 
-struct [[Component]] BAR
+struct [[fjr::component, fjr::update_order(1, 2, 3)]] BAR
 {
+    char *s;
     int i;
 };
 
@@ -28,12 +30,16 @@ int main()
 #endif
     Slimcc_AST ast = slimcc_get_ast(AST_ARGS, "test.c", file_data.chars, 0);
     int c = 0;
-    for(int i = 0 ; i < ast.n_gvars ; i++)
+    for(int i = 0 ; i < ast.n_gtags ; i++)
     {
-        Slimcc_NamedVar var = ast.gvars[i];
-        if(var.var->type_def)
+        Slimcc_Type *var = ast.gtags[i];
+        if(var->tag)
         {
-            CGS_StrView sv = (CGS_StrView){.chars = var.name, .len = var.name_len};
+            CGS_StrView sv = tok2view(var->tag);
+            if(cgs_equal(sv, "FOO") || cgs_equal(sv, "BAR"))
+            {
+                cgs_print("size == ", var->size, " :: ");
+            }
             cgs_println(sv);
             c++;
         }

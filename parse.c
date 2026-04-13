@@ -832,7 +832,7 @@ static void attr_aligned(SlimccCtx *pctx, Token *loc, TokenKind kind, int *align
   for (Token *tok = loc->attr_next; tok; tok = tok->attr_next) {
     if (tok->kind != kind)
       continue;
-    if (equal_ext(tok, "aligned")) {
+    if (equal_ext(tok, "aligned") && tok->attr_supported) {
       Token *tok2;
       if (consume(&tok2, tok->next, "(")) {
         int align2 = align_expr(pctx, &tok2, tok2);
@@ -850,7 +850,7 @@ static void attr_cleanup(SlimccCtx *pctx, Token *loc, TokenKind kind, Obj **fn) 
   for (Token *tok = loc->attr_next; tok; tok = tok->attr_next) {
     if (tok->kind != kind)
       continue;
-    if (equal_ext(tok, "cleanup")) {
+    if (equal_ext(tok, "cleanup") && tok->attr_supported) {
       VarScope *sc = find_var(pctx, skip(pctx, tok->next, "("));
       if (!(sc && sc->var && sc->var->ty->kind == TY_FUNC))
         error_tok(pctx, tok, "cleanup function not found");
@@ -875,7 +875,7 @@ static void cdtor_attr(SlimccCtx *pctx, Token *loc, TokenKind kind, char *name, 
   for (Token *tok = loc->attr_next; tok; tok = tok->attr_next) {
     if (tok->kind != kind)
       continue;
-    if (equal_ext(tok, name)) {
+    if (equal_ext(tok, name) && tok->attr_supported) {
       uint16_t pri = 0;
       int64_t val;
       if (get_attr_val(pctx, tok->next, &val))
@@ -887,7 +887,7 @@ static void cdtor_attr(SlimccCtx *pctx, Token *loc, TokenKind kind, char *name, 
 
 static void bool_attr(SlimccCtx *pctx, Token *loc, TokenKind kind, char *name, bool *b) {
   for (Token *tok = loc->attr_next; tok; tok = tok->attr_next) {
-    if (tok->kind == kind && equal_ext(tok, name)) {
+    if (tok->kind == kind && equal_ext(tok, name) && tok->attr_supported) {
       *b = true;
       return;
     }
@@ -905,7 +905,7 @@ static void apply_str_attr(SlimccCtx *opts, char *attr_name, Token *tok, char **
 
 static void str_attr(SlimccCtx *pctx, Token *loc, TokenKind kind, char *name, char **str) {
   for (Token *tok = loc->attr_next; tok; tok = tok->attr_next) {
-    if (tok->kind == kind && equal_ext(tok, name)) {
+    if (tok->kind == kind && equal_ext(tok, name) && tok->attr_supported) {
       Token *t;
       apply_str_attr(pctx, name, tok, str, str_tok(pctx, &t, skip(pctx, tok->next, "("))->str);
       skip(pctx, t, ")");
