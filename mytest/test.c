@@ -30,6 +30,8 @@ int foo(int x) {
 
 [[fjr::x]] int [[fjr::y]] MYVAR [[fjr::z]] = 25 ? 25 : 25;
 
+typedef int myi;
+
 int main()
 {
     struct FOO fff = ({
@@ -67,7 +69,7 @@ int main()
     {
         Slimcc_NamedVar var = ast.gvars[i];
         CGS_StrView sv = {.chars = var.name, .len = var.name_len};
-        if(cgs_equal(sv, "play_sound"))
+        if(cgs_equal(sv, "myi"))
         {
             cgs_println(sv);
         }

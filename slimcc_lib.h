@@ -37,9 +37,9 @@ typedef struct Slimcc_VarScope {
     int64_t enum_val;
     int32_t type_def_align;
     
-    Slimcc_Token *tok;
+    Slimcc_Token *decl;
     Slimcc_Token *name;
-    Slimcc_Token *tyspec;
+    // Slimcc_Token *tyspec;
 } Slimcc_VarScope;
 
 typedef struct Slimcc_NamedVar
