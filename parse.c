@@ -197,7 +197,7 @@ static Node *funcall(SlimccCtx *pctx, Token **rest, Token *tok, Node *node);
 static Node *unary(SlimccCtx *pctx, Token **rest, Token *tok);
 static Node *primary(SlimccCtx *pctx, Token **rest, Token *tok);
 static Node *parse_typedef(SlimccCtx *pctx, Token **rest, Token *tok, Type *basety, VarAttr *attr);
-static Obj *func_prototype2(SlimccCtx *pctx, Type *ty, VarAttr *attr, Token *name);
+static Obj *func_prototype2(SlimccCtx *pctx, Type *ty, VarAttr *attr, Token *name, Token *tyspec, Token *tok);
 static Obj *func_prototype(SlimccCtx *pctx, Token **rest, Token *tok, Token *name, Token *tyspec, Type *ty, VarAttr *attr);
 static void global_declaration(SlimccCtx *pctx, Token **rest, Token *tok, Token *tyspec, Type *basety, VarAttr *attr);
 static Node *calc_vla(SlimccCtx *pctx, Type *ty, Token *tok);
@@ -607,30 +607,52 @@ static void prepare_struct_init(SlimccCtx *pctx, Initializer *init, Type *ty) {
   }
 }
 
-static VarScope *push_var_scope(SlimccCtx *pctx, char *key, int keylen, Obj *var) {
+static VarScope *push_var_scope(SlimccCtx *pctx, char *key, int keylen, Obj *var, Slimcc_VarScope **new_vsc) {
   HashEntry *ent = hashmap_get_or_insert(&decl_scope(pctx)->vars, key, keylen);
   VarScope *vsc = ent->val;
   if (vsc)
+  {
+    if(new_vsc)
+      *new_vsc = vsc;
     return vsc;
+  }
   vsc = ent->val = ast_arena_calloc(pctx, sizeof(VarScope));
   vsc->var = var;
+  if(new_vsc)
+    *new_vsc = vsc;
   return NULL;
 }
 
-static void push_var_name2(SlimccCtx *pctx, char *key, int keylen, Token *tok, Obj *var) {
-  VarScope *vsc = push_var_scope(pctx, key, keylen, var);
+static VarScope *push_var_name2(SlimccCtx *pctx, char *key, int keylen, Token *tok, Obj *var, VarScope **new_vsc) {
+  VarScope *vsc = push_var_scope(pctx, key, keylen, var, new_vsc);
   if (vsc)
     error_tok(pctx, tok, "redeclaration of '%.*s'", keylen, key);
+  else if(new_vsc)
+    new_vsc[0]->name = tok;
+  return vsc;
 }
 
-static void push_var_name(SlimccCtx *pctx, Token *name, Obj *var) {
-  push_var_name2(pctx, name->loc, name->len, name, var);
+static VarScope *push_var_name(SlimccCtx *pctx, Token *name, Obj *var, VarScope **new_vsc) {
+  VarScope *vsc = push_var_name2(pctx, name->loc, name->len, name, var, new_vsc);
+  if(vsc)
+    vsc->name = name;
+  return vsc;
 }
 
-static void push_gvar_name(SlimccCtx *pctx, Token *name, Obj *var) {
-  VarScope *vsc = push_var_scope(pctx, name->loc, name->len, var);
-  if (vsc && var != vsc->var)
-    error_tok(pctx, name, "invalid redefinition of '%.*s'", name->len, name->loc);
+static VarScope *push_gvar_name(SlimccCtx *pctx, Token *name, Obj *var, VarScope **new_vsc) {
+  VarScope *vsc = push_var_scope(pctx, name->loc, name->len, var, new_vsc);
+  if(vsc)
+  {
+    if(var != vsc->var)
+    {
+      error_tok(pctx, name, "invalid redefinition of '%.*s'", name->len, name->loc);
+    }
+  }
+  else if(new_vsc)
+  {
+    new_vsc[0]->name = name;
+  }
+  return vsc;
 }
 
 static Obj *alloc_ast_var(SlimccCtx *pctx, Type *ty) {
@@ -641,7 +663,6 @@ static Obj *alloc_ast_var(SlimccCtx *pctx, Type *ty) {
 
 static Obj *new_lvar2(SlimccCtx *pctx, Type *ty, Scope *sc, Token *name) {
   Obj *var = alloc_ast_var(pctx, ty);
-  var->tok = var->name_tok = name;
   var->is_local = true;
   var->next = sc->locals;
   sc->locals = var;
@@ -669,7 +690,6 @@ static Obj *new_param(SlimccCtx *pctx, char *name, Type *ty) {
 
 static Obj *new_gvar(SlimccCtx *pctx, Token *name, Type *ty) {
   Obj *new_obj = alloc_var(string_dup(name->loc, name->len), ty);
-  new_obj->name_tok = new_obj->tok = name;
   return pctx->globals = pctx->globals->next = new_obj;
 }
 
@@ -980,9 +1000,6 @@ static void symbol_attr(SlimccCtx *pctx, Token *name, Token *tok, VarAttr *attr,
 
   if (var->is_common && var->is_nocommon)
     error_tok(pctx, name, "conflict of attribute common/nocommon");
-  
-  var->name_tok = name;
-  var->tok = tok;
 }
 
 static void func_attr(SlimccCtx *pctx, Token *name, Token *tok, VarAttr *attr, Obj *fn) {
@@ -1299,7 +1316,6 @@ static Type *func_params(SlimccCtx *pctx, Token **rest, Token *tok, Type *rtn_ty
       *rest = skip(pctx, tok->next, ")");
       break;
     }
-    cur->tyspec_tok = tok;
 
     VarAttr attr = {0};
     Token *name = NULL;
@@ -1318,7 +1334,7 @@ static Type *func_params(SlimccCtx *pctx, Token **rest, Token *tok, Type *rtn_ty
       error_tok(pctx, tok, "parameter declared void");
     cur = cur->param_next = new_param(pctx, NULL, param_ty);
     if (name)
-      push_var_name(pctx, name, cur);
+      push_var_name(pctx, name, cur, NULL);
   }
   fn_ty->pre_calc = expr;
   fn_ty->param_list = head.param_next;
@@ -1763,7 +1779,12 @@ static Node *declaration2(SlimccCtx *pctx, Token **rest, Token *tok, Type *baset
       error_tok(pctx, tok, "variable length arrays cannot be 'static'");
 
     Obj *var = new_static_lvar(pctx, ty);
-    push_var_name(pctx, name, var);
+    VarScope *vsc;
+    if(push_var_name(pctx, name, var, &vsc) == NULL)
+    {
+      vsc->tyspec = tyspec;
+      vsc->tok = tok;
+    }
 
     var->is_tls = attr->strg & SC_THREAD;
     assembler_name(pctx, &tok, tok, var);
@@ -1782,7 +1803,12 @@ static Node *declaration2(SlimccCtx *pctx, Token **rest, Token *tok, Type *baset
   }
 
   Obj *var = new_lvar2(pctx, ty, decl_scope(pctx), name);
-  push_var_name(pctx, name, var);
+  VarScope *vsc;
+  if(push_var_name(pctx, name, var, &vsc) == NULL)
+  {
+    vsc->tyspec = tyspec;
+    vsc->tok = tok;
+  }
 
   if (ty->kind == TY_VLA) {
     pctx->fnctx->use_vla = true;
@@ -5335,7 +5361,7 @@ static Node *primary(SlimccCtx *pctx, Token **rest, Token *tok) {
       if (pctx->opt_std == STD_C89) {
         Type *ty = func_type(pctx, ty_int, tok);
         ty->is_oldstyle = true;
-        return new_var_node(pctx, func_prototype2(pctx, ty, &(VarAttr){0}, tok), tok);
+        return new_var_node(pctx, func_prototype2(pctx, ty, &(VarAttr){0}, tok, NULL, NULL), tok);
       }
       error_tok(pctx, tok, "implicit declaration of a function");
     }
@@ -5482,7 +5508,7 @@ static Node *resolve_local_gotos(SlimccCtx *pctx) {
   return head.lbl.next;
 }
 
-static Obj *func_prototype2(SlimccCtx *pctx, Type *ty, VarAttr *attr, Token *name) {
+static Obj *func_prototype2(SlimccCtx *pctx, Type *ty, VarAttr *attr, Token *name, Token *tyspec, Token *tok) {
   if (pctx->scope->parent && (attr->strg & SC_STATIC))
     error_tok(pctx, name, "static function not in file scope");
 
@@ -5505,7 +5531,12 @@ static Obj *func_prototype2(SlimccCtx *pctx, Type *ty, VarAttr *attr, Token *nam
         strstr(fn->name, "getcontext"))
       fn->returns_twice = true;
   }
-  push_gvar_name(pctx, name, fn);
+  VarScope *vsc;
+  if(push_gvar_name(pctx, name, fn, &vsc) == NULL)
+  {
+    vsc->tyspec = tyspec;
+    vsc->tok = tok;
+  }
   return fn;
 }
 
@@ -5556,7 +5587,7 @@ static Node *func_old_style_param(SlimccCtx *pctx, Token **rest, Token *tok, Typ
         if (ty->kind == TY_VOID || ty->size <= 0)
           error_tok(pctx, name, "invalid parameter type");
         var->ty = ty;
-        push_var_name(pctx, name, var);
+        push_var_name(pctx, name, var, NULL);
         continue;
       }
 
@@ -5571,11 +5602,11 @@ static Node *func_old_style_param(SlimccCtx *pctx, Token **rest, Token *tok, Typ
         if (ty->kind == TY_VOID || ty->size <= 0)
           error_tok(pctx, name, "invalid parameter type");
         var->ty = ty;
-        push_var_name(pctx, name, var);
+        push_var_name(pctx, name, var, NULL);
       } else {
         var->ty = promoted;
         Node *lhs = new_var_node(pctx, new_lvar2(pctx, ty, decl_scope(pctx), name), name);
-        push_var_name(pctx, name, lhs->m.var);
+        push_var_name(pctx, name, lhs->m.var, NULL);
 
         Node *rhs = new_var_node(pctx, var, name);
         if (ty->kind == TY_BOOL)
@@ -5590,7 +5621,7 @@ static Node *func_old_style_param(SlimccCtx *pctx, Token **rest, Token *tok, Typ
       if (var->ty)
         continue;
       var->ty = ty_int;
-      push_var_name2(pctx, var->name, strlen(var->name), tok, var);
+      push_var_name2(pctx, var->name, strlen(var->name), tok, var, NULL);
     }
   }
   *rest = tok;
@@ -5651,10 +5682,7 @@ static Obj *func_prototype(SlimccCtx *pctx, Token **rest, Token *tok, Token *nam
   if (is_vm_ty(ty->return_ty))
     error_tok(pctx, tok, "cannot return variably-modified type");
 
-  Obj *fn = func_prototype2(pctx, ty, attr, name);
-  fn->tok = tok;
-  fn->name_tok = name;
-  fn->tyspec_tok = tyspec;
+  Obj *fn = func_prototype2(pctx, ty, attr, name, tyspec, tok);
 
   assembler_name(pctx, &tok, tok, fn);
   aligned_attr(pctx, name, tok, attr, &fn->alt_align);
@@ -5712,7 +5740,6 @@ static void global_declaration(SlimccCtx *pctx, Token **rest, Token *tok, Token 
     HashEntry *ent = hashmap_get_or_insert(&pctx->symbols, name->loc, name->len);
     Obj *var = ent->val;
     if (var) {
-      var->tyspec_tok = tyspec_tok;
       if (!is_compatible2(pctx, var->ty, ty))
         error_tok(pctx, tok, "incompatible type");
       if ((!var->is_static && !!(attr->strg & SC_STATIC)) ||
@@ -5722,11 +5749,15 @@ static void global_declaration(SlimccCtx *pctx, Token **rest, Token *tok, Token 
         var->ty = ty;
     } else {
       var = ent->val = new_gvar(pctx, name, ty);
-      var->tyspec_tok = tyspec_tok;
       var->is_static = (attr->strg & SC_STATIC) || (attr->strg & SC_CONSTEXPR);
       var->is_tls = attr->strg & SC_THREAD;
     }
-    push_gvar_name(pctx, name, var);
+    VarScope *vsc;
+    if(push_gvar_name(pctx, name, var, &vsc) == NULL)
+    {
+      vsc->tok = tok;
+      vsc->tyspec = tyspec_tok;
+    }
 
     assembler_name(pctx, &tok, tok, var);
     aligned_attr(pctx, name, tok, attr, &var->alt_align);

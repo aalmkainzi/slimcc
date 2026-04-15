@@ -36,9 +36,12 @@ typedef struct Slimcc_VarScope {
     Slimcc_Type *enum_ty;
     int64_t enum_val;
     int32_t type_def_align;
+    
+    Slimcc_Token *tok;
+    Slimcc_Token *name;
+    Slimcc_Token *tyspec;
 } Slimcc_VarScope;
 
-// TODO instead of this. make Slimcc_VarScope contain a Slimcc_Token* for its name
 typedef struct Slimcc_NamedVar
 {
   char *name;
@@ -280,9 +283,9 @@ struct Slimcc_Obj {
   bool is_string_lit;
   int alt_align;
   
-  Slimcc_Token *tyspec_tok;
-  Slimcc_Token *name_tok;
-  Slimcc_Token *tok;
+  // Slimcc_Token *tyspec_tok;
+  // Slimcc_Token *name_tok;
+  // Slimcc_Token *tok;
   
   // Local variable
   int ofs;
