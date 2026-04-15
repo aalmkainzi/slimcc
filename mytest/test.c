@@ -30,8 +30,9 @@ int foo(int x) {
 
 [[fjr::x]] int [[fjr::y]] MYVAR [[fjr::z]] = 25 ? 25 : 25;
 
-typedef int myi;
-
+ [[deprecated]] typedef int  myi;
+ 
+ 
 int main()
 {
     struct FOO fff = ({
