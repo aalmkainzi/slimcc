@@ -302,7 +302,6 @@ int64_t eval_sign_extend(Type *ty, int64_t val);
 void eval_fp(SlimccCtx*, Node *node, FPVal *fval);
 Obj *parse(SlimccCtx *sctx, Token *tok);
 Token *skip_paren(SlimccCtx *sctx, Token *tok);
-Obj *new_lvar(SlimccCtx*, Type *ty);
 bool is_const_var(Obj *var);
 bool is_const_expr(SlimccCtx*, Node *node, int64_t *val);
 bool is_const_fp(SlimccCtx*, Node *node, FPVal *fval);

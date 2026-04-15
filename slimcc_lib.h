@@ -280,6 +280,10 @@ struct Slimcc_Obj {
   bool is_string_lit;
   int alt_align;
   
+  Slimcc_Token *tyspec_tok;
+  Slimcc_Token *name_tok;
+  Slimcc_Token *tok;
+  
   // Local variable
   int ofs;
   char *ptr;

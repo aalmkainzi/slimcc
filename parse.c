@@ -198,8 +198,8 @@ static Node *unary(SlimccCtx *pctx, Token **rest, Token *tok);
 static Node *primary(SlimccCtx *pctx, Token **rest, Token *tok);
 static Node *parse_typedef(SlimccCtx *pctx, Token **rest, Token *tok, Type *basety, VarAttr *attr);
 static Obj *func_prototype2(SlimccCtx *pctx, Type *ty, VarAttr *attr, Token *name);
-static Obj *func_prototype(SlimccCtx *pctx, Token **rest, Token *tok, Token *name, Type *ty, VarAttr *attr);
-static void global_declaration(SlimccCtx *pctx, Token **rest, Token *tok, Type *basety, VarAttr *attr);
+static Obj *func_prototype(SlimccCtx *pctx, Token **rest, Token *tok, Token *name, Token *tyspec, Type *ty, VarAttr *attr);
+static void global_declaration(SlimccCtx *pctx, Token **rest, Token *tok, Token *tyspec, Type *basety, VarAttr *attr);
 static Node *calc_vla(SlimccCtx *pctx, Type *ty, Token *tok);
 static Node *calc_vla2(SlimccCtx *pctx, Type *ty, Token *tok, VarAttr *attr);
 static int64_t const_expr2(SlimccCtx *pctx, Token **rest, Token *tok, Type **ty);
@@ -639,16 +639,17 @@ static Obj *alloc_ast_var(SlimccCtx *pctx, Type *ty) {
   return var;
 }
 
-static Obj *new_lvar2(SlimccCtx *pctx, Type *ty, Scope *sc) {
+static Obj *new_lvar2(SlimccCtx *pctx, Type *ty, Scope *sc, Token *name) {
   Obj *var = alloc_ast_var(pctx, ty);
+  var->tok = var->name_tok = name;
   var->is_local = true;
   var->next = sc->locals;
   sc->locals = var;
   return var;
 }
 
-Obj *new_lvar(SlimccCtx *pctx, Type *ty) {
-  return new_lvar2(pctx, ty, pctx->scope);
+static Obj *new_lvar(SlimccCtx *pctx, Type *ty, Token *name) {
+  return new_lvar2(pctx, ty, pctx->scope, name);
 }
 
 static Obj *alloc_var(char *name, Type *ty) {
@@ -666,7 +667,13 @@ static Obj *new_param(SlimccCtx *pctx, char *name, Type *ty) {
   return var;
 }
 
-static Obj *new_gvar(SlimccCtx *pctx, char *name, Type *ty) {
+static Obj *new_gvar(SlimccCtx *pctx, Token *name, Type *ty) {
+  Obj *new_obj = alloc_var(string_dup(name->loc, name->len), ty);
+  new_obj->name_tok = new_obj->tok = name;
+  return pctx->globals = pctx->globals->next = new_obj;
+}
+
+static Obj *new_gvar_s(SlimccCtx *pctx, char *name, Type *ty) {
   return pctx->globals = pctx->globals->next = alloc_var(name, ty);
 }
 
@@ -689,7 +696,7 @@ static Obj *new_static_lvar(SlimccCtx *pctx, Type *ty) {
 static Obj *new_anon_gvar(SlimccCtx *pctx, Type *ty) {
   if (pctx->fnctx)
     return new_static_lvar(pctx, ty);
-  Obj *var = new_gvar(pctx, new_unique_name(), ty);
+  Obj *var = new_gvar_s(pctx, new_unique_name(), ty);
   var->is_definition = true;
   var->is_static = true;
   return var;
@@ -973,6 +980,9 @@ static void symbol_attr(SlimccCtx *pctx, Token *name, Token *tok, VarAttr *attr,
 
   if (var->is_common && var->is_nocommon)
     error_tok(pctx, name, "conflict of attribute common/nocommon");
+  
+  var->name_tok = name;
+  var->tok = tok;
 }
 
 static void func_attr(SlimccCtx *pctx, Token *name, Token *tok, VarAttr *attr, Obj *fn) {
@@ -1289,6 +1299,8 @@ static Type *func_params(SlimccCtx *pctx, Token **rest, Token *tok, Type *rtn_ty
       *rest = skip(pctx, tok->next, ")");
       break;
     }
+    cur->tyspec_tok = tok;
+
     VarAttr attr = {0};
     Token *name = NULL;
     Type *ty = declspec(pctx, &tok, tok, &attr, SC_REGISTER);
@@ -1712,7 +1724,7 @@ static Node *ptr_base_size(SlimccCtx *sctx, Type *ty, Token *tok) {
 static Node *calc_vla(SlimccCtx *pctx, Type *ty, Token *tok) {
   Node *n = NULL;
   if (ty->kind == TY_VLA && ty->vla_len_expr && !ty->vla_len_val) {
-    ty->vla_len_val = new_lvar2(pctx, ty_size_t, base_scope(pctx));
+    ty->vla_len_val = new_lvar2(pctx, ty_size_t, base_scope(pctx), NULL);
     n = new_binary(pctx, ND_ASSIGN, new_var_node(pctx, ty->vla_len_val, tok), ty->vla_len_expr, tok);
   }
   if (ty->base)
@@ -1731,10 +1743,11 @@ static Node *calc_vla2(SlimccCtx *pctx, Type *ty, Token *tok, VarAttr *attr) {
 static Node *declaration2(SlimccCtx *pctx, Token **rest, Token *tok, Type *basety, VarAttr *attr,
                           Obj **cond_var) {
   Token *name = NULL;
+  Token *tyspec = tok;
   Type *ty = declarator(pctx, &tok, tok, basety, &name);
 
   if (ty->kind == TY_FUNC) {
-    func_prototype(pctx, rest, tok, name, ty, attr);
+    func_prototype(pctx, rest, tok, name, tyspec, ty, attr);
     return NULL;
   }
 
@@ -1768,7 +1781,7 @@ static Node *declaration2(SlimccCtx *pctx, Token **rest, Token *tok, Type *baset
     return expr;
   }
 
-  Obj *var = new_lvar2(pctx, ty, decl_scope(pctx));
+  Obj *var = new_lvar2(pctx, ty, decl_scope(pctx), name);
   push_var_name(pctx, name, var);
 
   if (ty->kind == TY_VLA) {
@@ -1830,10 +1843,11 @@ static Node *cond_declaration(SlimccCtx *pctx, Token **rest, Token *tok, char *s
 
     VarAttr attr = {0};
     StorageClass msk = (clause == 0) ? SC_ALL : (SC_AUTO | SC_CONSTEXPR | SC_REGISTER);
+    Token *tyspec = tok;
     Type *basety = declspec(pctx, &tok, tok, &attr, msk);
 
     if (attr.strg & SC_EXTERN) {
-      global_declaration(pctx, &tok, tok, basety, &attr);
+      global_declaration(pctx, &tok, tok, tyspec, basety, &attr);
       continue;
     }
 
@@ -1866,10 +1880,11 @@ static Node *cond_declaration(SlimccCtx *pctx, Token **rest, Token *tok, char *s
 
 static Node *declaration(SlimccCtx *pctx, Token **rest, Token *tok) {
   VarAttr attr = {0};
+  Token *tyspec = tok;
   Type *basety = declspec(pctx, &tok, tok, &attr, SC_ALL);
 
   if (attr.strg & SC_EXTERN) {
-    global_declaration(pctx, rest, tok, basety, &attr);
+    global_declaration(pctx, rest, tok, tyspec, basety, &attr);
     return NULL;
   }
 
@@ -1965,7 +1980,7 @@ static void designation(SlimccCtx *pctx, Token **rest, Token *tok, Initializer *
           ctx->init = ast_arena_malloc(pctx, sizeof(Initializer));
           *ctx->init = init->list.data[i];
 
-          ctx->var = new_lvar(pctx, init->list.data[i].ty);
+          ctx->var = new_lvar(pctx, init->list.data[i].ty, NULL);
           ctx->end = tok;
           ctx->init_lvl = ctx->lvl;
         }
@@ -3123,7 +3138,7 @@ static Node *compound_stmt2(SlimccCtx *pctx, Token **rest, Token *tok, NodeKind 
       node->ty = ptr_decay(pctx, result->m.lhs->ty);
 
       if (node->ty->kind == TY_STRUCT || node->ty->kind == TY_UNION) {
-        Obj *var = new_lvar(pctx, node->ty);
+        Obj *var = new_lvar(pctx, node->ty, NULL);
         Node *n = new_binary(pctx, ND_ASSIGN, new_var_node(pctx, var, tok), result->m.lhs, tok);
         result->m.lhs = new_binary(pctx, ND_COMMA, n, new_var_node(pctx, var, tok), tok);
         add_type(pctx, result->m.lhs);
@@ -3862,10 +3877,10 @@ static Node *atomic_op(SlimccCtx *pctx, Node *binary, bool return_old) {
   Node head = {0};
   Node *cur = &head;
 
-  Obj *addr = new_lvar(pctx, pointer_to(binary->m.lhs->ty));
-  Obj *val = new_lvar(pctx, binary->m.rhs->ty);
-  Obj *old = new_lvar(pctx, binary->m.lhs->ty);
-  Obj *new = new_lvar(pctx, binary->m.lhs->ty);
+  Obj *addr = new_lvar(pctx, pointer_to(binary->m.lhs->ty), NULL);
+  Obj *val = new_lvar(pctx, binary->m.rhs->ty, NULL);
+  Obj *old = new_lvar(pctx, binary->m.lhs->ty, NULL);
+  Obj *new = new_lvar(pctx, binary->m.lhs->ty, NULL);
 
   cur = cur->next = new_unary(pctx, ND_EXPR_STMT,
                               new_binary(pctx, ND_ASSIGN, new_var_node(pctx, addr, tok),
@@ -3963,7 +3978,7 @@ static Node *assign2(SlimccCtx *pctx, Token **rest, Token *tok, Node *node) {
   if (equal(tok, "=") && (node->ty->qual & Q_ATOMIC)) {
     Node *rhs = assign(pctx, rest, tok->next);
     add_type(pctx, rhs);
-    Obj *tmp = new_lvar(pctx, rhs->ty);
+    Obj *tmp = new_lvar(pctx, rhs->ty, NULL);
     Node *expr = new_binary(pctx, ND_ASSIGN, new_var_node(pctx, tmp, tok), rhs, tok);
     chain_expr(pctx, &expr, new_binary(pctx, ND_EXCH, new_unary(pctx, ND_ADDR, node, tok),
                                  new_var_node(pctx, tmp, tok), tok));
@@ -4046,7 +4061,7 @@ Type *vla_cond_result_len(SlimccCtx *pctx, Type *ty1, Type *ty2, Type *base, Nod
     if (is_const_expr(pctx, *cond, &val))
       return vla_of(pctx, base, val ? len1 : len2, 0);
 
-    *cond_var = new_lvar2(pctx, ty_bool, base_scope(pctx));
+    *cond_var = new_lvar2(pctx, ty_bool, base_scope(pctx), NULL);
     *cond = new_binary(pctx, ND_ASSIGN, new_var_node(pctx, *cond_var, (*cond)->tok), *cond,
                        (*cond)->tok);
     add_type(pctx, *cond);
@@ -4087,7 +4102,7 @@ static Node *conditional(SlimccCtx *pctx, Token **rest, Token *tok) {
   }
   add_type(pctx, cond);
   enter_tmp_scope(pctx);
-  Obj *var = new_lvar(pctx, cond->ty);
+  Obj *var = new_lvar(pctx, cond->ty, NULL);
   node->ctrl.cond = cond_cast(pctx, new_binary(pctx, ND_ASSIGN, new_var_node(pctx, var, cond->tok), cond,
                                          tok));
   node->ctrl.then = new_var_node(pctx, var, cond->tok);
@@ -4900,7 +4915,7 @@ static Node *funcall(SlimccCtx *pctx, Token **rest, Token *tok, Node *fn) {
   if (node->ty->kind == TY_STRUCT ||
       node->ty->kind == TY_UNION ||
       (node->ty->kind == TY_BITINT && 0))
-    node->call.rtn_buf = new_lvar(pctx, node->ty);
+    node->call.rtn_buf = new_lvar(pctx, node->ty, NULL);
   return node;
 }
 
@@ -5007,7 +5022,7 @@ static Node *compound_literal(SlimccCtx *pctx, Token **rest, Token *tok) {
     return expr;
   }
 
-  Obj *var = new_lvar2(pctx, ty, decl_scope(pctx));
+  Obj *var = new_lvar2(pctx, ty, decl_scope(pctx), NULL);
   var->is_compound_lit = true;
   var->alt_align = attr.align;
 
@@ -5481,7 +5496,7 @@ static Obj *func_prototype2(SlimccCtx *pctx, Type *ty, VarAttr *attr, Token *nam
     if (fn->ty->is_oldstyle && !ty->is_oldstyle)
       fn->ty = ty;
   } else {
-    fn = ent->val = new_gvar(pctx, get_ident(pctx, name), ty);
+    fn = ent->val = new_gvar(pctx, name, ty);
     fn->is_static = attr->strg & SC_STATIC;
 
     if (strstr(fn->name, "setjmp") ||
@@ -5559,7 +5574,7 @@ static Node *func_old_style_param(SlimccCtx *pctx, Token **rest, Token *tok, Typ
         push_var_name(pctx, name, var);
       } else {
         var->ty = promoted;
-        Node *lhs = new_var_node(pctx, new_lvar2(pctx, ty, decl_scope(pctx)), name);
+        Node *lhs = new_var_node(pctx, new_lvar2(pctx, ty, decl_scope(pctx), name), name);
         push_var_name(pctx, name, lhs->m.var);
 
         Node *rhs = new_var_node(pctx, var, name);
@@ -5630,13 +5645,17 @@ static void func_definition(SlimccCtx *pctx, Token **rest, Token *tok, Obj *fn, 
   arena_off(pctx, &pctx->ast_arena);
 }
 
-static Obj *func_prototype(SlimccCtx *pctx, Token **rest, Token *tok, Token *name, Type *ty, VarAttr *attr) {
+static Obj *func_prototype(SlimccCtx *pctx, Token **rest, Token *tok, Token *name, Token *tyspec, Type *ty, VarAttr *attr) {
   if (!name)
     error_tok(pctx, tok, "function name omitted");
   if (is_vm_ty(ty->return_ty))
     error_tok(pctx, tok, "cannot return variably-modified type");
 
   Obj *fn = func_prototype2(pctx, ty, attr, name);
+  fn->tok = tok;
+  fn->name_tok = name;
+  fn->tyspec_tok = tyspec;
+
   assembler_name(pctx, &tok, tok, fn);
   aligned_attr(pctx, name, tok, attr, &fn->alt_align);
   symbol_attr(pctx, name, tok, attr, fn);
@@ -5655,15 +5674,16 @@ static void func_exportness(SlimccCtx *pctx, Obj *fn, VarAttr *attr, bool is_def
   }
 }
 
-static void global_declaration(SlimccCtx *pctx, Token **rest, Token *tok, Type *basety, VarAttr *attr) {
+static void global_declaration(SlimccCtx *pctx, Token **rest, Token *tok, Token *tyspec_tok, Type *basety, VarAttr *attr) {
   bool first = true;
   for (; comma_list(pctx, &tok, &tok, ";", !first); first = false) {
     Token *name = NULL;
+
     Type *ty = declarator2(pctx, &tok, tok, basety, &name,
                            &(DeclContext){.is_glob = !pctx->scope->parent});
 
     if (ty->kind == TY_FUNC) {
-      Obj *fn = func_prototype(pctx, &tok, tok, name, ty, attr);
+      Obj *fn = func_prototype(pctx, &tok, tok, name, tyspec_tok, ty, attr);
 
       if (first && !pctx->scope->parent && is_func_def(pctx, tok)) {
         func_exportness(pctx, fn, attr, true);
@@ -5692,6 +5712,7 @@ static void global_declaration(SlimccCtx *pctx, Token **rest, Token *tok, Type *
     HashEntry *ent = hashmap_get_or_insert(&pctx->symbols, name->loc, name->len);
     Obj *var = ent->val;
     if (var) {
+      var->tyspec_tok = tyspec_tok;
       if (!is_compatible2(pctx, var->ty, ty))
         error_tok(pctx, tok, "incompatible type");
       if ((!var->is_static && !!(attr->strg & SC_STATIC)) ||
@@ -5700,7 +5721,8 @@ static void global_declaration(SlimccCtx *pctx, Token **rest, Token *tok, Type *
       if (var->ty->kind == TY_ARRAY && var->ty->size < 0)
         var->ty = ty;
     } else {
-      var = ent->val = new_gvar(pctx, get_ident(pctx, name), ty);
+      var = ent->val = new_gvar(pctx, name, ty);
+      var->tyspec_tok = tyspec_tok;
       var->is_static = (attr->strg & SC_STATIC) || (attr->strg & SC_CONSTEXPR);
       var->is_tls = attr->strg & SC_THREAD;
     }
@@ -5791,6 +5813,7 @@ Obj *parse(SlimccCtx *pctx, Token *tok) {
     }
 
     VarAttr attr = {0};
+    Token *tyspec = tok;
     Type *basety = declspec(pctx, &tok, tok, &attr, SC_ALL);
     
     if (attr.strg & SC_TYPEDEF) {
@@ -5799,7 +5822,7 @@ Obj *parse(SlimccCtx *pctx, Token *tok) {
       continue;
     }
 
-    global_declaration(pctx, &tok, tok, basety, &attr);
+    global_declaration(pctx, &tok, tok, tyspec, basety, &attr);
     arena_off(pctx, &pctx->node_arena);
   }
 

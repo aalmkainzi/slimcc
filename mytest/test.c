@@ -18,14 +18,26 @@ struct [[fjr::component, fjr::update_order(1, 2, 3)]] BAR
     int i;
 };
 
-[[fjr::event]]
-int play_sound()
+[[fjr::one]]
+int [[fjr::two]] play_sound() [[fjr::three]]
 {
     
 }
 
+int foo(int x) {
+    return x ?: 42;
+}
+
+[[fjr::x]] int [[fjr::y]] MYVAR [[fjr::z]] = 25 ? 25 : 25;
+
 int main()
 {
+    struct FOO fff = ({
+        int this_is_var = 25;
+        struct FOO out = {.i = this_is_var};
+        out;
+    });
+    
     FILE *f = fopen("test.c", "r");
     CGS_DStr file_data = cgs_dstr_init();
     cgs_fread_until(&file_data, f, EOF);
