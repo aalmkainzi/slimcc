@@ -1935,9 +1935,9 @@ static char *supported_c_attr(SlimccCtx *sctx, Token **rest, Token *tok, Token *
   Token *vendor = NULL;
   if (tok->kind == TK_IDENT && equal(tok->next, "::")) {
     vendor = tok;
-    tok = tok->next->next;
     if(vendor_out)
       *vendor_out = vendor;
+    tok = tok->next->next;
   }
   *rest = tok;
 
