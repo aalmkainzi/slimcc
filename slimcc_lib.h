@@ -40,7 +40,6 @@ typedef struct Slimcc_VarScope {
     Slimcc_Token *name;
     Slimcc_Token *begin;
     Slimcc_Token *end;
-    // Slimcc_Token *tyspec;
 } Slimcc_VarScope;
 
 typedef struct Slimcc_NamedVar

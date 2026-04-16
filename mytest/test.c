@@ -24,15 +24,15 @@ int [[fjr::two]] play_sound() [[fjr::three]]
     
 }
 
-int **foo(int x) {
+int **foo(int x)
+{
     return 0;
 }
 
 [[fjr::x]] int [[fjr::y]] MYVAR [[fjr::z]] = 1;
 
- [[deprecated]] typedef int  myi;
- 
- 
+[[deprecated]] typedef int  myi;
+
 int main()
 {
     struct FOO fff = ({
