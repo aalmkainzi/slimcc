@@ -24,11 +24,11 @@ int [[fjr::two]] play_sound() [[fjr::three]]
     
 }
 
-int foo(int x) {
-    return x ?: 42;
+int **foo(int x) {
+    return 0;
 }
 
-[[fjr::x]] int [[fjr::y]] MYVAR [[fjr::z]] = 25 ? 25 : 25;
+[[fjr::x]] int [[fjr::y]] MYVAR [[fjr::z]] = 1;
 
  [[deprecated]] typedef int  myi;
  
