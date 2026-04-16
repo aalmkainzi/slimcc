@@ -4531,7 +4531,8 @@ static void struct_members(SlimccCtx *pctx, Token **rest, Token *tok, Type *ty) 
       tok = skip(pctx, tok, ";");
       continue;
     }
-
+    
+    Token *begin = tok;
     VarAttr attr = {0};
     Type *basety = declspec(pctx, &tok, tok, &attr, SC_NONE);
 
@@ -4555,7 +4556,10 @@ static void struct_members(SlimccCtx *pctx, Token **rest, Token *tok, Type *ty) 
     bool first = true;
     for (; comma_list(pctx, &tok, &tok, ";", !first); first = false) {
       Member *mem = calloc(1, sizeof(Member));
+      mem->begin = begin;
       mem->ty = declarator(pctx, &tok, tok, basety, &mem->name);
+      mem->end = tok;
+      
       if (mem->name) {
         chk_mem_name2(pctx, &names, mem->name);
         mem->name->is_live = true;

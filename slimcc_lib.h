@@ -252,7 +252,11 @@ typedef enum {
 struct Slimcc_Member {
     Slimcc_Member *next;
     Slimcc_Type *ty;
+    
     Slimcc_Token *name;
+    Slimcc_Token *begin;
+    Slimcc_Token *end;
+    
     int64_t offset;
     int idx;
     int alt_align;

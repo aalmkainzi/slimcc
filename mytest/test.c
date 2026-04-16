@@ -24,10 +24,10 @@ int [[fjr::two]] play_sound() [[fjr::three]]
     
 }
 
-int **foo(int x)
+typedef struct SS
 {
-    return 0;
-}
+    int i,j,k;
+} SS;
 
 [[fjr::x]] int [[fjr::y]] MYVAR [[fjr::z]] = 1;
 
@@ -57,7 +57,7 @@ int main()
         if(var->tag)
         {
             CGS_StrView sv = tok2view(var->tag);
-            if(cgs_equal(sv, "FOO") || cgs_equal(sv, "BAR"))
+            if(cgs_equal(sv, "SS"))
             {
                 cgs_print("size == ", var->size, " :: ");
             }
@@ -70,7 +70,7 @@ int main()
     {
         Slimcc_NamedVar var = ast.gvars[i];
         CGS_StrView sv = {.chars = var.name, .len = var.name_len};
-        if(cgs_equal(sv, "myi"))
+        if(cgs_equal(sv, "SS"))
         {
             cgs_println(sv);
         }
