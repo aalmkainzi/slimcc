@@ -1936,9 +1936,9 @@ static char *supported_c_attr(SlimccCtx *sctx, Token **rest, Token *tok, Token *
   if (tok->kind == TK_IDENT && equal(tok->next, "::")) {
     vendor = tok;
     tok = tok->next->next;
+    if(vendor_out)
+      *vendor_out = vendor;
   }
-  if(vendor_out)
-    *vendor_out = vendor;
   *rest = tok;
 
   if (tok->kind != TK_IDENT)
