@@ -24,7 +24,7 @@ int [[fjr::two]] play_sound() [[fjr::three]]
     
 }
 
-typedef struct SS
+typedef struct [[fjr::fast(64)]] SS
 {
     int i,j,k;
 } SS;
@@ -32,6 +32,8 @@ typedef struct SS
 [[fjr::x]] int [[fjr::y]] MYVAR [[fjr::z]] = 1;
 
 [[deprecated]] typedef int  myi;
+
+struct [[gnu::packed]] {int i; char *s;} NOTAGVAR;
 
 int main()
 {
@@ -70,7 +72,7 @@ int main()
     {
         Slimcc_NamedVar var = ast.gvars[i];
         CGS_StrView sv = {.chars = var.name, .len = var.name_len};
-        if(cgs_equal(sv, "SS"))
+        if(cgs_equal(sv, "NOTAGVAR"))
         {
             cgs_println(sv);
         }

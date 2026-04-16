@@ -1118,6 +1118,7 @@ static Type *declspec(SlimccCtx *pctx, Token **rest, Token *tok, VarAttr *attr, 
       }
       break;
     }
+    Token *kw = tok;
     tok = tok->next;
 
     switch (tk_kind) {
@@ -1167,9 +1168,15 @@ static Type *declspec(SlimccCtx *pctx, Token **rest, Token *tok, VarAttr *attr, 
 
     if (!ty) {
       switch (tk_kind) {
-      case TK_struct:        ty = struct_union_decl(pctx, &tok, tok, TY_STRUCT); break;
-      case TK_union:         ty = struct_union_decl(pctx, &tok, tok, TY_UNION); break;
-      case TK_enum:          ty = enum_specifier(pctx, &tok, tok); break;
+      case TK_struct:        ty = struct_union_decl(pctx, &tok, tok, TY_STRUCT);
+                             ty->kw = kw;
+                             break;
+      case TK_union:         ty = struct_union_decl(pctx, &tok, tok, TY_UNION);
+                             ty->kw = kw;
+                             break;
+      case TK_enum:          ty = enum_specifier(pctx, &tok, tok);
+                             ty->kw = kw;
+                             break;
       case TK_typeof:        ty = typeof_specifier(pctx, &tok, tok, attr); break;
       case TK_typeof_unqual: ty = unqual(typeof_specifier(pctx, &tok, tok, attr)); break;
       case TK_auto_type:     ty = new_type(TY_AUTO, -1, 0); break;

@@ -350,6 +350,7 @@ struct Slimcc_Type {
   Slimcc_Type *origin;
   Slimcc_Type *decl_next; // forward declarations
   Slimcc_Token *tag;
+  Slimcc_Token *kw; // points to "struct", "union", "enum"
   Slimcc_EnumVal *enums;
 
   // Pointer-to or array-of type.
