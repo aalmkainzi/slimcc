@@ -524,7 +524,7 @@ typedef struct Slimcc_AST
 } Slimcc_AST;
 
 struct SlimccReport;
-Slimcc_AST slimcc_get_ast(int argc, char *argv[], char *file_name, char *source_data, struct SlimccReport *report);
+Slimcc_AST slimcc_get_ast(int argc, const char *const*argv, const char *file_name, char *source_data, struct SlimccReport *report);
 void slimcc_free_ast(Slimcc_AST *ast);
 
 #endif
