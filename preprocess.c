@@ -1935,10 +1935,10 @@ static char *supported_c_attr(SlimccCtx *sctx, Token **rest, Token *tok, Token *
   Token *vendor = NULL;
   if (tok->kind == TK_IDENT && equal(tok->next, "::")) {
     vendor = tok;
-    if(vendor_out)
-      *vendor_out = vendor;
     tok = tok->next->next;
   }
+  if(vendor_out)
+    *vendor_out = vendor;
   *rest = tok;
 
   if (tok->kind != TK_IDENT)
@@ -1989,7 +1989,7 @@ static void filter_attr(SlimccCtx *sctx, Token *tok, Token **lst, bool is_bracke
       (*lst)->kind = is_bracket ? TK_BATTR : TK_ATTR;
       (*lst)->attr_supported = is_supported;
       (*lst)->attr_next = NULL;
-      (*lst)->attr_vendor = vendor;
+      (*lst)->attr_vendor = copy_token(sctx, vendor);
     }
   }
 }
