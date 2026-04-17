@@ -1989,7 +1989,7 @@ static void filter_attr(SlimccCtx *sctx, Token *tok, Token **lst, bool is_bracke
       (*lst)->kind = is_bracket ? TK_BATTR : TK_ATTR;
       (*lst)->attr_supported = is_supported;
       (*lst)->attr_next = NULL;
-      (*lst)->attr_vendor = copy_token(sctx, vendor);
+      (*lst)->attr_vendor = vendor ? copy_token(sctx, vendor) : NULL;
     }
   }
 }
