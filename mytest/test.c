@@ -6,6 +6,8 @@ CGS_StrView tok2view(Slimcc_Token *t)
     return (CGS_StrView){.chars = t->loc, .len = t->len};
 }
 
+typedef struct { } Foo;
+
 struct [[Component]] FOO
 {
     char *s;
@@ -44,6 +46,8 @@ struct SS myssvar;
 
 struct [[gnu::packed]] {int i; char *s;} NOTAGVAR;
 
+struct KW;
+
 int main()
 {
     struct FOO fff = ({
@@ -68,9 +72,9 @@ int main()
         if(var->tag)
         {
             CGS_StrView sv = tok2view(var->tag);
-            if(cgs_equal(sv, "SS"))
+            if(cgs_equal(sv, "KW"))
             {
-                cgs_print("size == ", var->size, " :: ");
+                cgs_print("size == ", var->size, " :: ", tok2view(var->kw));
             }
             cgs_println(sv);
             c++;
@@ -81,7 +85,7 @@ int main()
     {
         Slimcc_NamedVar var = ast.gvars[i];
         CGS_StrView sv = {.chars = var.name, .len = var.name_len};
-        if(cgs_equal(sv, "printf"))
+        if(cgs_equal(sv, "Foo"))
         {
             cgs_println(sv);
         }

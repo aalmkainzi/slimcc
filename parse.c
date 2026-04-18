@@ -4616,9 +4616,7 @@ static Type *struct_tag(SlimccCtx *pctx, TypeKind kind, Token *tag, Token *tok, 
     Type *ty = new_type(kind, -1, 0);
     push_tag_scope(pctx, tag, ty);
     
-    if(equal(tok, "{")) {
-      ty->kw = kw;
-    }
+    ty->kw = kw;
     
     return ty;
   }
