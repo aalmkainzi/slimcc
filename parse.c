@@ -197,8 +197,8 @@ static Node *funcall(SlimccCtx *pctx, Token **rest, Token *tok, Node *node);
 static Node *unary(SlimccCtx *pctx, Token **rest, Token *tok);
 static Node *primary(SlimccCtx *pctx, Token **rest, Token *tok);
 static Node *parse_typedef(SlimccCtx *pctx, Token **rest, Token *tok, Token *begin, Type *basety, VarAttr *attr);
-static Obj *func_prototype2(SlimccCtx *pctx, Type *ty, VarAttr *attr, Token *name, Token *begin, Token *tok);
-static Obj *func_prototype(SlimccCtx *pctx, Token **rest, Token *tok, Token *name, Token *begin, Type *ty, VarAttr *attr);
+static VarScope *func_prototype2(SlimccCtx *pctx, Type *ty, VarAttr *attr, Token *name, Token *begin, Token *tok);
+static VarScope *func_prototype(SlimccCtx *pctx, Token **rest, Token *tok, Token *name, Token *begin, Type *ty, VarAttr *attr);
 static void global_declaration(SlimccCtx *pctx, Token **rest, Token *tok, Token *begin, Type *basety, VarAttr *attr);
 static Node *calc_vla(SlimccCtx *pctx, Type *ty, Token *tok);
 static Node *calc_vla2(SlimccCtx *pctx, Type *ty, Token *tok, VarAttr *attr);
@@ -628,7 +628,7 @@ static VarScope *push_var_name2(SlimccCtx *pctx, char *key, int keylen, Token *t
   if (vsc)
     error_tok(pctx, tok, "redeclaration of '%.*s'", keylen, key);
   else if(new_vsc)
-    new_vsc[0]->name = tok;
+    (*new_vsc)->name = tok;
   return vsc;
 }
 
@@ -650,7 +650,7 @@ static VarScope *push_gvar_name(SlimccCtx *pctx, Token *name, Obj *var, VarScope
   }
   else if(new_vsc)
   {
-    new_vsc[0]->name = name;
+    (*new_vsc)->name = name;
   }
   return vsc;
 }
@@ -5379,7 +5379,7 @@ static Node *primary(SlimccCtx *pctx, Token **rest, Token *tok) {
       if (pctx->opt_std == STD_C89) {
         Type *ty = func_type(pctx, ty_int, tok);
         ty->is_oldstyle = true;
-        return new_var_node(pctx, func_prototype2(pctx, ty, &(VarAttr){0}, tok, NULL, NULL), tok);
+        return new_var_node(pctx, func_prototype2(pctx, ty, &(VarAttr){0}, tok, NULL, NULL)->var, tok);
       }
       error_tok(pctx, tok, "implicit declaration of a function");
     }
@@ -5531,7 +5531,7 @@ static Node *resolve_local_gotos(SlimccCtx *pctx) {
   return head.lbl.next;
 }
 
-static Obj *func_prototype2(SlimccCtx *pctx, Type *ty, VarAttr *attr, Token *name, Token *begin, Token *tok) {
+static VarScope *func_prototype2(SlimccCtx *pctx, Type *ty, VarAttr *attr, Token *name, Token *begin, Token *tok) {
   if (pctx->scope->parent && (attr->strg & SC_STATIC))
     error_tok(pctx, name, "static function not in file scope");
 
@@ -5560,7 +5560,8 @@ static Obj *func_prototype2(SlimccCtx *pctx, Type *ty, VarAttr *attr, Token *nam
     vsc->begin = begin;
     vsc->end = tok;
   }
-  return fn;
+  assert(vsc->var == fn);
+  return vsc;
 }
 
 static Obj *find_param(Token *name, Obj *list) {
@@ -5699,20 +5700,21 @@ static void func_definition(SlimccCtx *pctx, Token **rest, Token *tok, Obj *fn, 
   arena_off(pctx, &pctx->ast_arena);
 }
 
-static Obj *func_prototype(SlimccCtx *pctx, Token **rest, Token *tok, Token *name, Token *begin, Type *ty, VarAttr *attr) {
+static VarScope *func_prototype(SlimccCtx *pctx, Token **rest, Token *tok, Token *name, Token *begin, Type *ty, VarAttr *attr) {
   if (!name)
     error_tok(pctx, tok, "function name omitted");
   if (is_vm_ty(ty->return_ty))
     error_tok(pctx, tok, "cannot return variably-modified type");
 
-  Obj *fn = func_prototype2(pctx, ty, attr, name, begin, tok);
+  VarScope *vsc = func_prototype2(pctx, ty, attr, name, begin, tok);
+  Obj *fn = vsc->var;
 
   assembler_name(pctx, &tok, tok, fn);
   aligned_attr(pctx, name, tok, attr, &fn->alt_align);
   symbol_attr(pctx, name, tok, attr, fn);
   func_attr(pctx, name, tok, attr, fn);
   *rest = tok;
-  return fn;
+  return vsc;
 }
 
 static void func_exportness(SlimccCtx *pctx, Obj *fn, VarAttr *attr, bool is_def) {
@@ -5734,11 +5736,19 @@ static void global_declaration(SlimccCtx *pctx, Token **rest, Token *tok, Token 
                            &(DeclContext){.is_glob = !pctx->scope->parent});
 
     if (ty->kind == TY_FUNC) {
-      Obj *fn = func_prototype(pctx, &tok, tok, name, begin, ty, attr);
+      VarScope *vsc = func_prototype(pctx, &tok, tok, name, begin, ty, attr);
+      Obj *fn = vsc->var;
 
       if (first && !pctx->scope->parent && is_func_def(pctx, tok)) {
         func_exportness(pctx, fn, attr, true);
         func_definition(pctx, rest, tok, fn, ty);
+        
+        // definition takes priority of begin,end,name tokens
+        
+        vsc->name = name;
+        vsc->begin = begin;
+        vsc->end = tok;
+        
         return;
       }
       func_exportness(pctx, fn, attr, false);

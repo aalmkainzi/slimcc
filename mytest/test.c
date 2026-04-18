@@ -18,11 +18,17 @@ struct [[fjr::component, fjr::update_order(1, 2, 3)]] BAR
     int i;
 };
 
+int play_sound();
+int play_sound();
+int play_sound();
+
 [[fjr::one]]
 int [[fjr::two]] play_sound() [[fjr::three]]
 {
     
 }
+
+int play_sound();
 
 struct SS;
 
@@ -75,7 +81,7 @@ int main()
     {
         Slimcc_NamedVar var = ast.gvars[i];
         CGS_StrView sv = {.chars = var.name, .len = var.name_len};
-        if(cgs_equal(sv, "NOTAGVAR"))
+        if(cgs_equal(sv, "printf"))
         {
             cgs_println(sv);
         }
