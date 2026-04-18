@@ -189,7 +189,7 @@ static Node *new_add(SlimccCtx *pctx, Node *lhs, Node *rhs, Token *tok);
 static Node *new_sub(SlimccCtx *pctx, Node *lhs, Node *rhs, Token *tok);
 static Node *binary(SlimccCtx *pctx, Token **rest, Token *tok, Preced stop);
 static Member *get_struct_member(SlimccCtx *pctx, Type *ty, Token *tok);
-static Type *struct_union_decl(SlimccCtx *pctx, Token **rest, Token *tok, TypeKind kind);
+static Type *struct_union_decl(SlimccCtx *pctx, Token **rest, Token *tok, Token *kw, TypeKind kind);
 static Type *struct_decl(SlimccCtx *pctx, Type *ty, int alt_align, int pack_align);
 static Type *union_decl(SlimccCtx *pctx, Type *ty, int alt_align, int pack_align);
 static Node *postfix(SlimccCtx *pctx, Node *node, Token **rest, Token *tok);
@@ -1168,11 +1168,9 @@ static Type *declspec(SlimccCtx *pctx, Token **rest, Token *tok, VarAttr *attr, 
 
     if (!ty) {
       switch (tk_kind) {
-      case TK_struct:        ty = struct_union_decl(pctx, &tok, tok, TY_STRUCT);
-                             ty->kw = kw;
+      case TK_struct:        ty = struct_union_decl(pctx, &tok, tok, kw, TY_STRUCT);
                              break;
-      case TK_union:         ty = struct_union_decl(pctx, &tok, tok, TY_UNION);
-                             ty->kw = kw;
+      case TK_union:         ty = struct_union_decl(pctx, &tok, tok, kw, TY_UNION);
                              break;
       case TK_enum:          ty = enum_specifier(pctx, &tok, tok);
                              ty->kw = kw;
@@ -4607,7 +4605,7 @@ static void struct_members(SlimccCtx *pctx, Token **rest, Token *tok, Type *ty) 
   ty->members = head.next;
 }
 
-static Type *struct_tag(SlimccCtx *pctx, TypeKind kind, Token *tag, Token *tok, Type **tag_compat_ty) {
+static Type *struct_tag(SlimccCtx *pctx, TypeKind kind, Token *tag, Token *tok, Token *kw, Type **tag_compat_ty) {
   Type *tag_ty;
   if (equal(tok, "{") || equal(tok, ";"))
     tag_ty = find_tag_in_scope(pctx, tag);
@@ -4617,6 +4615,11 @@ static Type *struct_tag(SlimccCtx *pctx, TypeKind kind, Token *tag, Token *tok, 
   if (!tag_ty) {
     Type *ty = new_type(kind, -1, 0);
     push_tag_scope(pctx, tag, ty);
+    
+    if(equal(tok, "{")) {
+      ty->kw = kw;
+    }
+    
     return ty;
   }
 
@@ -4633,11 +4636,14 @@ static Type *struct_tag(SlimccCtx *pctx, TypeKind kind, Token *tag, Token *tok, 
       *tag_compat_ty = tag_ty;
       return new_type(kind, -1, 0);
     }
+    else {
+      tag_ty->kw = kw; // kw is assigned to the first definition
+    }
   }
   return tag_ty;
 }
 
-static Type *struct_union_decl(SlimccCtx *pctx, Token **rest, Token *tok, TypeKind kind) {
+static Type *struct_union_decl(SlimccCtx *pctx, Token **rest, Token *tok, Token *kw, TypeKind kind) {
   bool is_packed = false;
   bool_attr(pctx, tok, TK_ATTR, "packed", &is_packed);
   bool_attr(pctx, tok, TK_BATTR, "packed", &is_packed);
@@ -4656,8 +4662,9 @@ static Type *struct_union_decl(SlimccCtx *pctx, Token **rest, Token *tok, TypeKi
   Type *ty;
   if (!tag) {
     ty = new_type(kind, -1, 0);
+    ty->kw = kw; // tagless struct/union, can't re-define, so kw only has this possible value
   } else {
-    ty = struct_tag(pctx, kind, tag, tok, &tag_compat_ty);
+    ty = struct_tag(pctx, kind, tag, tok, kw, &tag_compat_ty);
 
     if (!equal(tok, "{")) {
       *rest = tok;

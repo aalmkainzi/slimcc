@@ -24,12 +24,15 @@ int [[fjr::two]] play_sound() [[fjr::three]]
     
 }
 
+struct SS;
+
 typedef struct [[fjr::fast(64)]] SS
 {
     int i,j,k;
 } SS;
 
-[[fjr::x]] int [[fjr::y]] MYVAR [[fjr::z]] = 1;
+struct SS;
+struct SS myssvar;
 
 [[deprecated]] typedef int  myi;
 
@@ -49,7 +52,7 @@ int main()
 #ifdef _WIN32
     #define AST_ARGS 3, (char*[]){"test", "-isystem", "C:/Users/aa.almkainzi/DevTools/w64devkit/include"}
 #else
-    #define AST_ARGS 2, (char*[]){"test", "-I/usr/lib/gcc/x86_64-linux-gnu/13/include/"}
+    #define AST_ARGS 2, (const char*[]){"test", "-I/usr/lib/gcc/x86_64-linux-gnu/13/include/"}
 #endif
     Slimcc_AST ast = slimcc_get_ast(AST_ARGS, "test.c", file_data.chars, 0);
     int c = 0;
