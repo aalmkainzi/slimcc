@@ -72,7 +72,7 @@ int main()
         if(var->tag)
         {
             CGS_StrView sv = tok2view(var->tag);
-            if(cgs_equal(sv, "KW"))
+            if(cgs_equal(sv, "SS"))
             {
                 cgs_print("size == ", var->size, " :: ", tok2view(var->kw));
             }

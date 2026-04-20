@@ -490,14 +490,14 @@ Slimcc_AST slimcc_get_ast(int argc, const char *const*argv, const char *file_nam
   }
   
   HashMap gvars_map = sctx->scope->vars;
-  Slimcc_NamedVar *gvars = calloc(gvars_map.used, sizeof(*gvars));
+  Slimcc_VarScope **gvars = calloc(gvars_map.used, sizeof(*gvars));
   size_t gvars_count = 0;
   for(size_t i = 0 ; i < gvars_map.capacity ; i++)
   {
     HashEntry ent = gvars_map.buckets[i];
     if(ent.key != NULL && ent.key != (void*)-1)
     {
-      gvars[gvars_count++] = (Slimcc_NamedVar){.var = ent.val, .name = ent.key, .name_len = ent.keylen};
+      gvars[gvars_count++] = ent.val;
     }
   }
   

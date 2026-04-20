@@ -42,13 +42,6 @@ typedef struct Slimcc_VarScope {
     Slimcc_Token *end;
 } Slimcc_VarScope;
 
-typedef struct Slimcc_NamedVar
-{
-  char *name;
-  int name_len;
-  Slimcc_VarScope *var;
-} Slimcc_NamedVar;
-
 typedef enum {
     INCL_ABS = -2,
     INCL_REL = -1,
@@ -515,7 +508,7 @@ typedef struct Slimcc_AST
     Slimcc_Obj *objects;
     
     int n_gvars;
-    Slimcc_NamedVar *gvars;
+    Slimcc_VarScope **gvars;
     
     int n_gtags;
     Slimcc_Type **gtags;
