@@ -1,5 +1,6 @@
 #include "slimcc.h"
 #include "slimcc_lib.h"
+#include <setjmp.h>
 
 #ifdef _WIN32
 
@@ -453,7 +454,7 @@ bool ignore_missing_dep(SlimccCtx *opts, char *path, char *filename, Token *tok)
 
 struct SlimccReport;
 
-Slimcc_AST slimcc_get_ast(int argc, const char *const*argv, const char *file_name, char *source_data, struct SlimccReport *report)
+Slimcc_AST slimcc_get_ast(int argc, const char *const*argv, const char *file_name, char *source_data, struct Slimcc_Report *report)
 {
   SlimccCtx *sctx = calloc(1, sizeof(*sctx));
   
@@ -463,6 +464,13 @@ Slimcc_AST slimcc_get_ast(int argc, const char *const*argv, const char *file_nam
     sctx->globals = calloc(1, sizeof(Obj)),
     sctx->macro_defs = calloc(1, sizeof(MacroDef));
   };
+  
+  if(setjmp(sctx->jump_on_error) != 0)
+  {
+    report->error_tok = sctx->error_tok;
+    report->error_index = sctx->error_index;
+    goto done;
+  }
   
   init_macros(sctx);
   
@@ -475,6 +483,7 @@ Slimcc_AST slimcc_get_ast(int argc, const char *const*argv, const char *file_nam
   
   Obj *prog = parse(sctx, tok);
   
+  done:;
   Slimcc_AST ret = {.objects = prog};
   
   HashMap gtags_map = sctx->scope->tags;

@@ -1,4 +1,5 @@
 #include "slimcc.h"
+#include <setjmp.h>
 
 typedef struct {
   int pos;
@@ -82,7 +83,9 @@ void error_at(SlimccCtx *tctx, char *loc, char *fmt, ...) {
   va_start(ap, fmt);
   verror_at(tctx, tctx->current_file->name, tctx->current_file->contents, line_no, loc, fmt, ap);
   va_end(ap);
-  exit(1);
+  
+  tctx->error_index = loc - tctx->current_file->contents;
+  longjmp(tctx->jump_on_error, 1);
 }
 
 void error_tok(SlimccCtx *opts, Token *tok, char *fmt, ...) {
@@ -90,7 +93,9 @@ void error_tok(SlimccCtx *opts, Token *tok, char *fmt, ...) {
   va_start(ap, fmt);
   verror_at_tok(opts, tok, fmt, ap);
   va_end(ap);
-  exit(1);
+  
+  opts->error_tok = tok;
+  longjmp(opts->jump_on_error, 1);
 }
 
 void warn_tok(SlimccCtx *opts, Token *tok, char *fmt, ...) {

@@ -1,6 +1,7 @@
 #ifndef SLIMCC_H
 #define SLIMCC_H
 
+#include <csetjmp>
 #define _CRT_DECLARE_NONSTDC_NAMES 1
 
 #include <assert.h>
@@ -501,6 +502,11 @@ extern EnumType ety_of_int;
 
 typedef struct SlimccCtx
 {
+  jmp_buf jump_on_error;
+  Token *error_tok;
+  int error_index;
+  int error_line;
+  
   // sctx
   Arena ast_arena;
   Arena node_arena;

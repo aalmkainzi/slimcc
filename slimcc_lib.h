@@ -516,8 +516,13 @@ typedef struct Slimcc_AST
     void *ctx;
 } Slimcc_AST;
 
-struct SlimccReport;
-Slimcc_AST slimcc_get_ast(int argc, const char *const*argv, const char *file_name, char *source_data, struct SlimccReport *report);
+typedef struct Slimcc_Report
+{
+  Slimcc_Token *error_tok;
+  int error_index;
+} Slimcc_Report;
+
+Slimcc_AST slimcc_get_ast(int argc, const char *const*argv, const char *file_name, char *source_data, struct Slimcc_Report *report);
 void slimcc_free_ast(Slimcc_AST *ast);
 
 #endif
