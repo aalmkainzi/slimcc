@@ -1,9 +1,9 @@
 #ifndef SLIMCC_H
 #define SLIMCC_H
 
-#include <csetjmp>
 #define _CRT_DECLARE_NONSTDC_NAMES 1
 
+#include <setjmp.h>
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>
