@@ -468,7 +468,11 @@ Slimcc_AST slimcc_get_ast(int argc, const char *const*argv, const char *file_nam
     report->error = true;
     report->error_tok = sctx->error_tok;
     report->error_index = sctx->error_index;
-    goto done;
+    
+    while(sctx->scope->parent)
+      sctx->scope = sctx->scope->parent;
+    
+    goto return_ast;
   }
   
   init_macros(sctx);
@@ -482,7 +486,7 @@ Slimcc_AST slimcc_get_ast(int argc, const char *const*argv, const char *file_nam
   
   Obj *prog = parse(sctx, tok);
   
-  done:;
+  return_ast:;
   Slimcc_AST ret = {.objects = prog};
   
   HashMap gtags_map = sctx->scope->tags;
