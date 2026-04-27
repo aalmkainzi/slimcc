@@ -518,6 +518,7 @@ typedef struct Slimcc_AST
 
 typedef struct Slimcc_Report
 {
+  bool error;
   Slimcc_Token *error_tok;
   int error_index;
 } Slimcc_Report;

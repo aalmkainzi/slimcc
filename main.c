@@ -452,9 +452,7 @@ bool ignore_missing_dep(SlimccCtx *opts, char *path, char *filename, Token *tok)
   return false;
 }
 
-struct SlimccReport;
-
-Slimcc_AST slimcc_get_ast(int argc, const char *const*argv, const char *file_name, char *source_data, struct Slimcc_Report *report)
+Slimcc_AST slimcc_get_ast(int argc, const char *const*argv, const char *file_name, char *source_data, Slimcc_Report *report)
 {
   SlimccCtx *sctx = calloc(1, sizeof(*sctx));
   
@@ -467,6 +465,7 @@ Slimcc_AST slimcc_get_ast(int argc, const char *const*argv, const char *file_nam
   
   if(setjmp(sctx->jump_on_error) != 0)
   {
+    report->error = true;
     report->error_tok = sctx->error_tok;
     report->error_index = sctx->error_index;
     goto done;
