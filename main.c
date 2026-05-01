@@ -454,6 +454,10 @@ bool ignore_missing_dep(SlimccCtx *opts, char *path, char *filename, Token *tok)
 
 Slimcc_AST slimcc_get_ast(int argc, const char *const*argv, const char *file_name, char *source_data, Slimcc_Report *report)
 {
+  report->error = false;
+  report->error_index = -1;
+  report->error_tok = NULL;
+  
   SlimccCtx *sctx = calloc(1, sizeof(*sctx));
   
   {
