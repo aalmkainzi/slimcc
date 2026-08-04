@@ -5204,6 +5204,47 @@ static Node *funcall(Token **rest, Token *tok, Node *fn) {
   return node;
 }
 
+static void skip_until_close(Token **rest, Token *tok, TokenKind close_token)
+{
+  while (tok && tok->kind != TK_EOF) {
+    TokenKind closer = TK_INVALID;
+    
+    switch (tok->kind) {
+      case TK_LPAREN:
+        closer = TK_RPAREN;
+        break;
+      case TK_LBRACK:
+        closer = TK_RBRACK;
+        break;
+      case TK_LCURLY:
+        closer = TK_RCURLY;
+        break;
+        
+      case TK_RPAREN:
+      case TK_RBRACK:
+      case TK_RCURLY:
+        if (close_token != tok->kind) {
+          error_tok(tok, "unbalanced token");
+        }
+        else {
+          tok = tok->next;
+          *rest = tok;
+          return;
+        }
+        break;
+        
+      default:;
+    }
+
+    tok = tok->next;
+    if (closer != TK_INVALID) {
+      skip_until_close(&tok, tok, closer);
+    }
+  }
+
+  *rest = tok;
+}
+
 static Node *generic_selection(Token **rest, Token *tok) {
   Token *start = tok;
   tok = skip_tk(tok, TK_LPAREN);
@@ -5219,18 +5260,46 @@ static Node *generic_selection(Token **rest, Token *tok) {
   Node *ret = NULL;
   Node *def = NULL;
 
+  Token* def_expr_tok = NULL;
+
   while (comma_list(rest, &tok, TK_RPAREN, true)) {
     if (tok->kind == TK_default) {
       tok = skip_tk(tok->next, TK_COLON);
-      def = assign(&tok, tok);
+      if (tok->kind == TK_LBRACK) {
+        def_expr_tok = tok;
+        tok = tok->next;
+        skip_until_close(&tok, tok, TK_RBRACK);
+      }
+      else {
+        def = assign(&tok, tok);
+      }
       continue;
     }
 
     Type *t2 = declspec(&tok, tok, &(VarAttr){0}, SC_NONE);
     t2 = declarator2(&tok, tok, t2, NULL, &(DeclContext){.let_star = true});
 
-    Node *node = assign(&tok, skip_tk(tok, TK_COLON));
-    if (is_compatible2(t1, t2)) {
+    bool compatible = is_compatible2(t1, t2);
+
+    tok = skip_tk(tok, TK_COLON);
+
+    Node *node = NULL;
+
+    if (tok->kind == TK_LBRACK) {
+      tok = skip_tk(tok, TK_LBRACK);
+      if (compatible) {
+        node = expression(&tok, tok);
+        tok = tok->next;
+      }
+      else {
+        skip_until_close(&tok, tok, TK_RBRACK);
+      }
+    }
+    else {
+      node = assign(&tok, tok);
+    }
+
+    if (compatible) {
       if (ret) {
         notice_tok(ret->tok, "ambiguous _Generic selection");
         error_tok(node->tok, "with this option");
@@ -5238,8 +5307,17 @@ static Node *generic_selection(Token **rest, Token *tok) {
       ret = node;
     }
   }
-  if (!ret)
-    ret = def;
+  if (!ret) {
+    if (def) {
+      ret = def;
+    }
+    else if (def_expr_tok) {
+      assert(def_expr_tok->kind == TK_LBRACK);
+      tok = def_expr_tok->next;
+      ret = expression(&tok, tok);
+    }
+  }
+
   if (!ret)
     error_tok(start, "controlling expression type not compatible with"
                      " any generic association type");
