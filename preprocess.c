@@ -50,6 +50,8 @@ Token *tok_freelist;
 static const char *base_file;
 struct tm *cur_time;
 
+static bool safe_pp_mode;
+
 static Token *preprocess3(Token *tok);
 static bool has_macro(Token *tok);
 static bool expand_macro(Token **rest, Token *tok, Macro *m, bool is_root);
@@ -513,18 +515,39 @@ static Token *read_macro_arg_one(Token **rest, Token *tok, bool read_rest) {
   Token head = {0};
   Token *cur = &head;
   int level = 0;
+  int level_curly = 0;
+  int level_brack = 0;
+  int level_qmark = 0;
+
   Token *start = tok;
 
   for (;;) {
-    if (level == 0 && tok->kind == TK_RPAREN)
+    if (level == 0 && level_curly == 0 && level_brack == 0 && level_qmark == 0 && tok->kind == TK_RPAREN)
       break;
-    if (level == 0 && !read_rest && tok->kind == TK_COMMA)
+    if (level == 0 && level_curly == 0 && level_brack == 0 && level_qmark == 0 && !read_rest && tok->kind == TK_COMMA)
       break;
+
+    if (level < 0 || level_curly < 0 || level_brack < 0 || level_qmark < 0)
+      error_tok(start, "unbalanced args");
 
     if (tok->kind == TK_LPAREN)
       level++;
     else if (tok->kind == TK_RPAREN)
       level--;
+    if (safe_pp_mode) {
+      if (tok->kind == TK_LCURLY)
+        level_curly++;
+      else if (tok->kind == TK_RCURLY)
+        level_curly--;
+      else if (tok->kind == TK_LBRACK)
+        level_brack++;
+      else if (tok->kind == TK_RBRACK)
+        level_brack--;
+      else if (tok->kind == TK_QMARK)
+        level_qmark++;
+      else if (tok->kind == TK_COLON)
+        level_qmark--;
+    }
 
     if (tok->kind == TK_EOF)
       error_tok(start, "unterminated list");
@@ -886,6 +909,10 @@ static Token *prepare_funclike_args(Token *start) {
 
   Token *cur = start;
   int lvl = 0;
+  int lvl_curly = 0;
+  int lvl_brack = 0;
+  int lvl_qmark = 0;
+
   for (Token *tok = start->next;;) {
     if (tok->kind == TK_EOF)
       error_tok(start, "unterminated list");
@@ -907,13 +934,30 @@ static Token *prepare_funclike_args(Token *start) {
     cur = cur->next = tok;
     newline_to_space(cur);
 
-    if (lvl == 0 && tok->kind == TK_RPAREN)
+    if (lvl == 0 && lvl_curly == 0 && lvl_brack == 0 && lvl_qmark == 0 && tok->kind == TK_RPAREN)
       break;
+
+    if (lvl < 0 || lvl_curly < 0 || lvl_brack < 0 || lvl_qmark < 0)
+      error_tok(start, "unbalanced args");
 
     if (tok->kind == TK_LPAREN)
       lvl++;
     else if (tok->kind == TK_RPAREN)
       lvl--;
+    if (safe_pp_mode) {
+      if (tok->kind == TK_LCURLY)
+        lvl_curly++;
+      else if (tok->kind == TK_RCURLY)
+        lvl_curly--;
+      else if (tok->kind == TK_LBRACK)
+        lvl_brack++;
+      else if (tok->kind == TK_RBRACK)
+        lvl_brack--;
+      else if (tok->kind == TK_QMARK)
+        lvl_qmark++;
+      else if (tok->kind == TK_COLON)
+        lvl_qmark--;
+    }
 
     tok = tok->next;
   }
@@ -1488,6 +1532,18 @@ static Token *directives(Token **cur, Token *start, bool is_root) {
 
         hashmap_put(&pragma_once, arena_strdup(&cc1_arena, realpathbuf), (void *)1);
         return skip_line(tok->next->next);
+      }
+      else if (equal(tok->next, "STDC")) {
+        if (equal(tok->next->next, "SAFE_PP")) {
+          Token *stdc_pp_arg = tok->next->next->next;
+
+          if (consume(&stdc_pp_arg, stdc_pp_arg, "ON"))
+            safe_pp_mode = true;
+          else if (consume(&stdc_pp_arg, stdc_pp_arg, "OFF"))
+            safe_pp_mode = false;
+          else
+            warn_tok(stdc_pp_arg, "expected ON or OFF");
+        }
       }
       return pass_line(cur, start);
     }
