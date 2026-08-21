@@ -222,7 +222,7 @@ static Node *postfix(Node *node, Token **rest, Token *tok);
 static Node *funcall(Token **rest, Token *tok, Node *node);
 static Node *unary(Token **rest, Token *tok);
 static Node *primary(Token **rest, Token *tok);
-static Node *compound_literal(Token **rest, Token *tok);
+static Node *compound_literal_or_constexpr_member(Token **rest, Token *tok);
 static Node *parse_typedef(Token **rest, Token *tok, Type *basety, VarAttr *attr);
 static Obj *func_prototype2(Type *ty, VarAttr *attr, Token *name);
 static Obj *func_prototype(Token **rest, Token *tok, Token *name, Type *ty, VarAttr *attr);
@@ -2763,7 +2763,8 @@ static bool is_typename(Token *tok) {
 }
 
 static bool is_typename_paren2(Token **rest, Token *tok, Type **ty, VarAttr *attr) {
-  if (skip_paren(tok->next)->kind != TK_LCURLY) {
+  Token *next = skip_paren(tok->next);
+  if (next->kind != TK_LCURLY && next->kind != TK_DOT) {
     *ty = typename2(&tok, tok, attr);
     *rest = skip_tk(tok, TK_RPAREN);
     return true;
@@ -4732,7 +4733,7 @@ static Node *unary(Token **rest, Token *tok) {
         return node;
       }
 
-      Node *node = compound_literal(&tok, tok);
+      Node *node = compound_literal_or_constexpr_member(&tok, tok);
       return postfix(node, rest, tok);
     }
 
@@ -4782,6 +4783,8 @@ static bool chk_bitfield_width(int64_t width, Member *mem) {
 static void struct_members(Token **rest, Token *tok, Type *ty) {
   Member head = {0};
   Member *cur = &head;
+  Obj constexpr_head = {0};
+  Obj *constexpr_cur = &constexpr_head;
   Token *flex_tok = NULL;
   HashMap names = {0};
 
@@ -4799,14 +4802,17 @@ static void struct_members(Token **rest, Token *tok, Type *ty) {
     }
 
     VarAttr attr = {0};
-    Type *basety = declspec(&tok, tok, &attr, SC_NONE);
-
+    Type *basety = declspec(&tok, tok, &attr, SC_CONSTEXPR);
+    bool constexpr_member = attr.strg & SC_CONSTEXPR;
     // Anonymous struct member
     if (tok->kind == TK_SEMI && (basety->kind == TY_STRUCT || basety->kind == TY_UNION)) {
       if (basety->size < 0)
         error_tok(tok, "member has incomplete type");
       if (basety->tag && !opt_ms_anon_struct)
         error_tok(tok, "enable MSVC anonymous struct extension with `-fms-anon-struct`");
+      if (constexpr_member)
+        error_tok(tok, "constexpr member cannot be anonymous");
+
       chk_mem_name(&names, basety->members);
 
       Member *mem = calloc(1, sizeof(Member));
@@ -4814,6 +4820,20 @@ static void struct_members(Token **rest, Token *tok, Type *ty) {
 
       tok = tok->next;
       cur = cur->next = mem;
+      continue;
+    }
+
+    if (constexpr_member) {
+      Token *name = NULL;
+      Type *ty = declarator(&tok, tok, basety, &name);
+      if (!name)
+        error_tok(tok, "expected member name");
+
+      Obj *mem = new_gvar(arena_copy_string(&cc1_arena, name->loc, name->len), ty);
+      tok = skip_tk(tok, TK_EQ);
+      constexpr_initializer(&tok, tok, mem, mem);
+      constexpr_cur = constexpr_cur->next = mem;
+      tok = skip_tk(tok, TK_SEMI);
       continue;
     }
 
@@ -4865,6 +4885,7 @@ static void struct_members(Token **rest, Token *tok, Type *ty) {
     ty->is_flexible = true;
   }
   ty->members = head.next;
+  ty->constexpr_members = constexpr_head.next;
 }
 
 static Type *struct_ty_tag(TypeKind kind, Token *tag, Type *tag_ty) {
@@ -5273,13 +5294,31 @@ static Node *checked_arith(Token **rest, Token *tok, NodeKind kind) {
   return node;
 }
 
-static Node *compound_literal(Token **rest, Token *tok) {
+static Node *compound_literal_or_constexpr_member(Token **rest, Token *tok) {
   Token *start = tok;
   VarAttr attr = {0};
   Type *ty = declspec(&tok, tok, &attr, SC_CONSTEXPR | SC_REGISTER | SC_STATIC | SC_THREAD);
 
   ty = declarator(&tok, tok, ty, NULL);
   tok = skip_tk(tok, TK_RPAREN);
+
+  if (tok->kind == TK_DOT) {
+    if (ty->kind != TY_STRUCT)
+      error_tok(tok, "not a struct");
+
+    tok = skip_tk(tok, TK_DOT);
+    Token *name = tok;
+    tok = skip_tk(tok, TK_IDENT);
+
+    *rest = tok;
+    for (Obj *mem = ty->constexpr_members; mem; mem = mem->next) {
+      if (strncmp(mem->name, name->loc, name->len) == 0) {
+        return new_var_node(mem, name);
+      }
+    }
+
+    error_tok(name, "constexpr member not found");
+  }
 
   if (ty->kind == TY_VOID ||
       ty->kind == TY_FUNC ||

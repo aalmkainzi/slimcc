@@ -939,6 +939,7 @@ struct Type {
 
   // Struct
   Member *members;
+  Obj *constexpr_members;
   bool is_flexible;
   bool is_constructing;
 
