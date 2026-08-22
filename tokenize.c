@@ -371,6 +371,8 @@ TokenKind ident_keyword(Token *tok) {
       hashmap_put(&map, "defer", (void *)TK_defer);
     hashmap_put(&map, "_Defer", (void *)TK_defer);
 
+    hashmap_put(&map, "namespace", (void *)TK_namespace);
+
     hashmap_put(&map, "void", (void *)TK_void);
     hashmap_put(&map, "char", (void *)TK_char);
     hashmap_put(&map, "short", (void *)TK_short);

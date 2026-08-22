@@ -354,6 +354,8 @@ typedef enum {
   TK_false,
   TK_nullptr,
   TK_defer,
+  TK_namespace,
+
   TK_FUNCTION,
   TK_GNU_label,
 
@@ -421,6 +423,7 @@ struct Token {
   bool is_root : 1;
   bool is_live : 1;
   bool has_ucn : 1;
+  bool qual_name : 1;
   int len;         // Token length
   const char *loc; // Token location
   File *file;
@@ -804,6 +807,7 @@ struct Scope {
 
   HashMap vars;
   HashMap tags;
+  HashMap np_aliases;
 };
 
 Node *new_cast(Node *expr, Type *ty);
