@@ -179,6 +179,7 @@ typedef long double long_double_t;
 typedef struct Type Type;
 typedef struct Node Node;
 typedef struct Member Member;
+typedef struct CMember CMember;
 typedef struct Relocation Relocation;
 typedef struct LocalLabel LocalLabel;
 typedef struct EnumVal EnumVal;
@@ -940,7 +941,7 @@ struct Type {
 
   // Struct
   Member *members;
-  Obj *constexpr_members;
+  CMember *constexpr_members;
   bool is_flexible;
   bool is_constructing;
 
@@ -970,6 +971,11 @@ struct Member {
   bool is_aligned_bitfield;
   int bit_offset;
   int bit_width;
+};
+
+struct CMember {
+  Obj *obj;
+  CMember *next;
 };
 
 extern Type *ty_void;

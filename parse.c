@@ -4786,8 +4786,8 @@ static bool chk_bitfield_width(int64_t width, Member *mem) {
 static void struct_members(Token **rest, Token *tok, Type *ty) {
   Member head = {0};
   Member *cur = &head;
-  Obj constexpr_head = {0};
-  Obj *constexpr_cur = &constexpr_head;
+  CMember constexpr_head = {0};
+  CMember *constexpr_cur = &constexpr_head;
   Token *flex_tok = NULL;
   HashMap names = {0};
 
@@ -4832,9 +4832,11 @@ static void struct_members(Token **rest, Token *tok, Type *ty) {
       if (!name)
         error_tok(tok, "expected member name");
 
-      Obj *mem = new_gvar(arena_copy_string(&cc1_arena, name->loc, name->len), ty);
+      CMember *mem = calloc(1, sizeof(CMember));
+      Obj *obj = new_gvar(arena_copy_string(&cc1_arena, name->loc, name->len), ty);
       tok = skip_tk(tok, TK_EQ);
-      constexpr_initializer(&tok, tok, mem, mem);
+      constexpr_initializer(&tok, tok, obj, obj);
+      mem->obj = obj;
       constexpr_cur = constexpr_cur->next = mem;
       tok = skip_tk(tok, TK_SEMI);
       continue;
@@ -5314,9 +5316,9 @@ static Node *compound_literal_or_constexpr_member(Token **rest, Token *tok) {
     tok = skip_tk(tok, TK_IDENT);
 
     *rest = tok;
-    for (Obj *mem = ty->constexpr_members; mem; mem = mem->next) {
-      if (strncmp(mem->name, name->loc, name->len) == 0) {
-        return new_var_node(mem, name);
+    for (CMember *mem = ty->constexpr_members; mem; mem = mem->next) {
+      if (strncmp(mem->obj->name, name->loc, name->len) == 0) {
+        return new_var_node(mem->obj, name);
       }
     }
 

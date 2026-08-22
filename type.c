@@ -556,25 +556,25 @@ bool is_record_compat(Type *t1, Type *t2, bool is_redecl) {
     return !mem1 == !mem2;
   
   // compare constexpr members
-  Obj *cmem1 = t1->constexpr_members;
-  Obj *cmem2 = t2->constexpr_members;
+  CMember *cmem1 = t1->constexpr_members;
+  CMember *cmem2 = t2->constexpr_members;
 
   while (cmem1 && cmem2) {
-    Type *t1 = cmem1->ty;
-    Type *t2 = cmem2->ty;
+    Type *t1 = cmem1->obj->ty;
+    Type *t2 = cmem2->obj->ty;
 
-    if (strcmp(cmem1->name, cmem2->name) != 0)
+    if (strcmp(cmem1->obj->name, cmem2->obj->name) != 0)
       return false;
     if (!is_compatible2(t1, t2))
       return false;
-    if (!constexpr_equal(cmem1, cmem2))
+    if (!constexpr_equal(cmem1->obj, cmem2->obj))
       return false;
 
     cmem1 = cmem1->next;
     cmem2 = cmem2->next;
   }
 
-  return true;
+  return cmem1 == cmem2;
 }
 
 bool is_compatible2(Type *t1, Type *t2) {
