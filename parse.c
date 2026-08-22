@@ -2261,6 +2261,9 @@ static void initializer3(Token **rest, Token *tok, Initializer *init, Node *expr
         *rest = tok;
         return;
       }
+      else if (init->is_root) {
+        error_tok(tok, "incompatible types");
+      }
     }
     prepare_struct_init(init, init->ty);
     aggregate_initializer(rest, tok, init, expr, has_brace);
@@ -3506,7 +3509,7 @@ static void eval_void(Node *node) {
     eval(node);
 }
 
-static int64_t eval_cmp(Node *node) {
+int64_t eval_cmp(Node *node) {
   Node *lhs = node->m.lhs;
   Node *rhs = node->m.rhs;
 
@@ -3558,7 +3561,7 @@ static int64_t eval_cmp(Node *node) {
   internal_error();
 }
 
-static int64_t eval(Node *node) {
+int64_t eval(Node *node) {
   return eval2(node, &(EvalContext){.kind = EV_CONST});
 }
 

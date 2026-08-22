@@ -821,6 +821,7 @@ Obj *eval_var_opt(Node *node, int *ofs, bool let_array, bool let_atomic);
 bool equal_tok(Token *a, Token *b);
 Obj *get_symbol_var(const char *);
 Type *vla_cond_result_len(Type *ty1, Type *ty2, Type *base, Node **cond, Obj **cond_var);
+int64_t eval_cmp(Node *node);
 
 //
 // bitint.c

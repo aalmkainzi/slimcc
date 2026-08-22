@@ -437,6 +437,74 @@ static bool is_qual_compat(Type *t1, Type *t2) {
   return t1->qual == t2->qual;
 }
 
+static bool constexpr_equal_node(Node *n1, Node *n2, Type *ty) {
+  switch (ty->kind) {
+  case TY_BOOL:
+  case TY_PCHAR:
+  case TY_CHAR:
+  case TY_SHORT:
+  case TY_INT:
+  case TY_LONG:
+  case TY_LONGLONG:
+  case TY_FLOAT:
+  case TY_DOUBLE:
+  case TY_LDOUBLE:
+  case TY_ENUM:
+  case TY_PTR:
+  case TY_NULLPTR: {
+    Node op = {.kind = ND_EQ, .m.lhs = n1, .m.rhs = n2};
+    add_type(&op);
+    return eval_cmp(&op) == 1;
+  }
+  case TY_STRUCT:
+  case TY_UNION:
+    for (Member *mem = ty->members; mem; mem = mem->next) {
+      Node f1 = {.kind = ND_MEMBER, .m.lhs = n1, .m.member = mem};
+      Node f2 = {.kind = ND_MEMBER, .m.lhs = n2, .m.member = mem};
+      add_type(&f1);
+      add_type(&f2);
+
+      if (!constexpr_equal_node(&f1, &f2, mem->ty))
+        return false;
+    }
+    return true;
+    break;
+  case TY_ARRAY:
+    for (int64_t i = 0; i < ty->array_len; i++) {
+      Node idx = {.kind = ND_NUM, .num.val = i};
+      idx.ty = ty_int;
+
+      Node add1 = {.kind = ND_ADD, .m.lhs = n1, .m.rhs = &idx};
+      Node add2 = {.kind = ND_ADD, .m.lhs = n2, .m.rhs = &idx};
+      add_type(&add1);
+      add_type(&add2);
+
+      Node e1 = {.kind = ND_DEREF, .m.lhs = &add1};
+      Node e2 = {.kind = ND_DEREF, .m.lhs = &add2};
+      add_type(&e1);
+      add_type(&e2);
+
+      if (!constexpr_equal_node(&e1, &e2, ty->base))
+        return false;
+    }
+    return true;
+  };
+
+  assert(0);
+  return false;
+}
+
+static bool constexpr_equal(Obj *c1, Obj *c2) {
+  assert(is_compatible2(c1->ty, c2->ty));
+
+  Node base1 = {.kind = ND_VAR, .m.var = c1};
+  Node base2 = {.kind = ND_VAR, .m.var = c2};
+  add_type(&base1);
+  add_type(&base2);
+
+  return constexpr_equal_node(&base1, &base2, c1->ty);
+}
+
 bool is_record_compat(Type *t1, Type *t2, bool is_redecl) {
   if (t1->size < 0 ||
       t2->size < 0 ||
@@ -482,7 +550,31 @@ bool is_record_compat(Type *t1, Type *t2, bool is_redecl) {
     mem1 = mem1->next;
     mem2 = mem2->next;
   }
-  return !mem1 == !mem2;
+  if (!mem1 != !mem2)
+    return false;
+  if (t1->kind != TY_STRUCT)
+    return !mem1 == !mem2;
+  
+  // compare constexpr members
+  Obj *cmem1 = t1->constexpr_members;
+  Obj *cmem2 = t2->constexpr_members;
+
+  while (cmem1 && cmem2) {
+    Type *t1 = cmem1->ty;
+    Type *t2 = cmem2->ty;
+
+    if (strcmp(cmem1->name, cmem2->name) != 0)
+      return false;
+    if (!is_compatible2(t1, t2))
+      return false;
+    if (!constexpr_equal(cmem1, cmem2))
+      return false;
+
+    cmem1 = cmem1->next;
+    cmem2 = cmem2->next;
+  }
+
+  return true;
 }
 
 bool is_compatible2(Type *t1, Type *t2) {
