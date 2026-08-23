@@ -22,6 +22,7 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include "slimcc_lib.h"
 
 #if defined(__has_builtin)
 # define SLIMCC_HAS_BUILTIN(x) __has_builtin(x)
@@ -176,12 +177,23 @@ typedef double long_double_t;
 typedef long double long_double_t;
 #endif
 
-typedef struct Type Type;
+typedef Slimcc_Token       Token;
+typedef Slimcc_Type        Type;
+typedef Slimcc_File        File;
+typedef Slimcc_EnumVal     EnumVal;
+typedef Slimcc_Member      Member;
+typedef Slimcc_Obj         Obj;
+typedef Slimcc_HashEntry   HashEntry;
+typedef Slimcc_HashMap     HashMap;
+typedef Slimcc_TokenKind   TokenKind;
+typedef Slimcc_Arena       Arena;
+typedef Slimcc_QualMask    QualMask;
+typedef Slimcc_TypeKind    TypeKind;
+typedef Slimcc_StringArray StringArray;
+
 typedef struct Node Node;
-typedef struct Member Member;
 typedef struct Relocation Relocation;
 typedef struct LocalLabel LocalLabel;
-typedef struct EnumVal EnumVal;
 typedef union FPVal FPVal;
 typedef struct AsmContext AsmContext;
 typedef struct FuncObj FuncObj;
@@ -190,13 +202,6 @@ typedef struct SlashDelta SlashDelta;
 //
 // alloc.c
 //
-
-typedef struct Pool Pool;
-typedef struct {
-  Pool *cur;
-  Pool *head;
-  int used;
-} Arena;
 
 char *arena_format(Arena *arena, const char *fmt, ...);
 char *arena_strdup(Arena *arena, const char *str);
@@ -208,26 +213,12 @@ void *arena_malloc(Arena *a, size_t sz);
 
 bool check_mem_usage(void);
 
-extern Arena ast_arena;
-extern Arena cc1_arena;
 extern Arena pp_arena;
 extern bool free_alloc;
 
 //
 // hashmap.c
 //
-
-typedef struct {
-  const char *key;
-  int keylen;
-  void *val;
-} HashEntry;
-
-typedef struct {
-  HashEntry *buckets;
-  int32_t capacity;
-  int32_t used;
-} HashMap;
 
 HashEntry *hashmap_get_or_insert(HashMap *map, const char *key, int keylen);
 void *hashmap_get(HashMap *map, const char *key);
@@ -246,199 +237,12 @@ void hashmap_test(void);
 // strings.c
 //
 
-typedef struct {
-  const char **data;
-  int capacity;
-  int len;
-} StringArray;
-
 void strarray_push(StringArray *arr, const char *s);
 char *format(const char *fmt, ...) FMTCHK(1, 2);
 
 //
 // tokenize.c
 //
-
-typedef enum {
-  TK_IDENT,   // Identifiers
-  TK_KEYWORD, // Keywords
-  TK_STR,     // String literals
-  TK_ASM_STR,
-  TK_CHAR_LIT, // Character literals
-  TK_CHAR_LIT_PPEV = TK_CHAR_LIT + 1,
-  TK_PP_NUM, // Preprocessing numbers
-  TK_PP_NUM_PPEV = TK_PP_NUM + 1,
-  TK_INTMAX_NUM,
-  TK_FMARK,  // Filemarkers for -E
-  TK_PMARK,  // Placermarkers
-  TK_ATTR,   // GNU attribute
-  TK_BATTR,  // C23 attribute
-  TK_PRAGMA, // #pragma's
-  TK_EOF,    // End-of-file markers
-  TK_INVALID,
-
-  // Punctuators
-  TK_PUNCT,
-  TK_LPAREN,
-  TK_RPAREN,
-  TK_COMMA,
-  TK_SEMI,
-  TK_QMARK,
-  TK_LBRACK,
-  TK_RBRACK,
-  TK_LCURLY,
-  TK_RCURLY,
-  TK_BITNOT,
-  TK_LANGLE,
-  TK_LANGLE_EQ,
-  TK_LANGLE2,
-  TK_RANGLE,
-  TK_RANGLE_EQ,
-  TK_RANGLE2,
-  TK_NOT,
-  TK_NOT_EQ,
-  TK_REM,
-  TK_MUL,
-  TK_DIV,
-  TK_XOR,
-  TK_EQ2,
-  TK_HASH,
-  TK_HASH2,
-  TK_DOT,
-  TK_DOT3,
-  TK_COLON,
-  TK_COLON2,
-  TK_AND,
-  TK_AND2,
-  TK_ADD,
-  TK_ADD2,
-  TK_SUB,
-  TK_SUB2,
-  TK_OR,
-  TK_OR2,
-  TK_ARROW,
-
-  TK_EQ,
-  TK_ADD_EQ,
-  TK_SUB_EQ,
-  TK_MUL_EQ,
-  TK_DIV_EQ,
-  TK_REM_EQ,
-  TK_AND_EQ,
-  TK_OR_EQ,
-  TK_XOR_EQ,
-  TK_LANGLE2_EQ,
-  TK_RANGLE2_EQ,
-
-  TK_PUNCT_END,
-
-  TK_return,
-  TK_if,
-  TK_else,
-  TK_for,
-  TK_while,
-  TK_do,
-  TK_goto,
-  TK_break,
-  TK_continue,
-  TK_switch,
-  TK_case,
-  TK_default,
-  TK_sizeof,
-  TK_Generic,
-  TK_Countof,
-  TK_alignof,
-  TK_asm,
-  TK_static_assert,
-  TK_true,
-  TK_false,
-  TK_nullptr,
-  TK_defer,
-  TK_FUNCTION,
-  TK_GNU_label,
-
-  TK_TYPEKW,
-  TK_void,
-  TK_char,
-  TK_short,
-  TK_int,
-  TK_long,
-  TK_float,
-  TK_double,
-  TK_unsigned,
-  TK_struct,
-  TK_union,
-  TK_enum,
-  TK_typedef,
-  TK_static,
-  TK_extern,
-  TK_auto,
-  TK_register,
-  TK_Atomic,
-  TK_Noreturn,
-  TK_BitInt,
-  TK_auto_type,
-  TK_alignas,
-  TK_bool,
-  TK_const,
-  TK_constexpr,
-  TK_inline,
-  TK_restrict,
-  TK_signed,
-  TK_typeof,
-  TK_typeof_unqual,
-  TK_thread_local,
-  TK_volatile,
-  TK_TYPEKW_END,
-} TokenKind;
-
-typedef enum {
-  INCL_ABS = -2,
-  INCL_REL = -1,
-} InclIdx;
-
-typedef struct File File;
-struct File {
-  const char *name;
-  const char *contents;
-  int file_no;
-
-  int display_file_no;
-  int line_delta;
-  InclIdx incl_idx;
-  bool is_syshdr;
-  bool is_placeholder;
-};
-
-typedef struct Token Token;
-struct Token {
-  Token *next;
-  TokenKind kind : 16;
-  bool at_bol : 1;      // True if this token is at beginning of line
-  bool has_space : 1;   // True if this token follows a space character
-  bool dont_expand : 1; // True if a macro name is encountered during its expansion
-  bool is_incl_guard : 1;
-  bool is_root : 1;
-  bool is_live : 1;
-  bool has_ucn : 1;
-  int len;         // Token length
-  const char *loc; // Token location
-  File *file;
-  Token *origin; // If this is expanded from a macro, the original token
-  int line_no;   // Line number
-  int display_line_no;
-  int display_file_no;
-  Type *ty; // Used if TK_INT_NUM or TK_STR
-  ANON_UNION_START
-  Token *attr_next;
-  Token *alloc_next;
-  ANON_UNION_END
-  ANON_UNION_START
-  int64_t ival; // If kind is TK_INT_NUM, its value
-  char *str;    // String literal contents including terminating '\0'
-  Token *label_next;
-  ANON_UNION_END
-};
 
 NORETURN void error_ice(const char *file, int32_t line);
 NORETURN void error(const char *fmt, ...) FMTCHK(1, 2);
@@ -481,66 +285,6 @@ extern Token *tok_freelist;
 //
 // parse.c
 //
-
-typedef struct Obj Obj;
-struct Obj {
-  Obj *next;
-  char *name;
-  Type *ty;
-  bool is_local;
-  bool is_live;
-  bool is_used;
-  bool is_compound_lit;
-  bool is_string_lit;
-  int alt_align;
-
-  // Local variable
-  int ofs;
-  const char *ptr;
-  Obj *param_next;
-  bool pass_by_stack;
-  int stack_offset;
-  Node *arg_expr;
-  Obj *param_promoted;
-
-  // Global variable or function
-  bool is_definition;
-  bool is_static;
-  bool is_weak;
-  bool is_static_lvar;
-  Obj *static_lvars;
-  char *alias_name;
-  char *visibility;
-  char *asm_name;
-
-  // Global variable
-  bool is_tls;
-  bool is_common;
-  bool is_nocommon;
-  char *section_name;
-  char *init_data;
-  Relocation *rel;
-
-  // constexpr variable
-  char *constexpr_data;
-
-  // Function
-  bool export_fn;
-  bool export_fn_gnu;
-  bool is_gnu_inline;
-  bool is_always_inline;
-  bool is_naked;
-  bool is_noreturn;
-  bool returns_twice;
-  bool dont_reuse_stk;
-  bool dealloc_vla;
-  bool is_ctor;
-  bool is_dtor;
-  uint16_t ctor_prior;
-  uint16_t dtor_prior;
-  Node *body;
-  FuncObj *output; // backend defined output object
-};
 
 struct Relocation {
   Relocation *next;
@@ -668,14 +412,6 @@ typedef enum {
   ND_UNKNOWN,
 } NodeKind;
 
-typedef struct CaseRange CaseRange;
-struct CaseRange {
-  CaseRange *next;
-  Node *label;
-  int64_t lo;
-  int64_t hi;
-};
-
 typedef union {
   uint64_t as64;
   uint32_t as32;
@@ -738,7 +474,6 @@ struct Node {
     ANON_UNION_END
     ANON_UNION_START
     Node *for_inc;
-    CaseRange *sw_cases;
     ANON_UNION_END
     int64_t id;
   } ctrl;
@@ -862,112 +597,12 @@ typedef enum {
   ETY_U64,
 } EnumType;
 
-struct EnumVal {
-  EnumVal *next;
-  Token *name;
-  int64_t val;
-  Type *ty;
-};
-
 union FPVal {
   uint64_t chunk[2];
   uint32_t chunk32[4];
   long_double_t ld;
   double d;
   float f;
-};
-
-typedef enum {
-  TY_VOID,
-  TY_BOOL,
-  TY_PCHAR,
-  TY_CHAR,
-  TY_SHORT,
-  TY_INT,
-  TY_LONG,
-  TY_LONGLONG,
-  TY_FLOAT,
-  TY_DOUBLE,
-  TY_LDOUBLE,
-  TY_ENUM,
-  TY_PTR,
-  TY_NULLPTR,
-  TY_FUNC,
-  TY_ARRAY,
-  TY_VLA, // variable-length array
-  TY_STRUCT,
-  TY_UNION,
-  TY_BITINT,
-  TY_AUTO,
-  TY_ASM,
-} TypeKind;
-
-typedef enum {
-  Q_NONE = 0,
-  Q_CONST = 1,
-  Q_VOLATILE = 1 << 1,
-  Q_ATOMIC = 1 << 2,
-  Q_RESTRICT = 1 << 3,
-} QualMask;
-
-struct Type {
-  TypeKind kind;
-  int64_t size;
-  int32_t align;
-  bool is_unsigned;
-  bool is_enum;
-  bool is_int_enum;
-  bool is_fixed_enum;
-  QualMask qual;
-  Type *origin;
-  Type *decl_next; // forward declarations
-  Token *tag;
-  EnumVal *enums;
-
-  // Pointer-to or array-of type.
-  Type *base;
-
-  // _BitInt
-  int64_t bit_cnt;
-
-  // Array
-  int64_t array_len;
-
-  // Variable-length array
-  Node *vla_len_expr;
-  Obj *vla_len_val;
-
-  // Struct
-  Member *members;
-  bool is_flexible;
-  bool is_constructing;
-
-  // Function parameter
-  QualMask param_qual;
-
-  // Function type
-  Scope *scopes;
-  Type *return_ty;
-  Obj *param_list;
-  Node *pre_calc;
-  bool is_variadic;
-  bool is_oldstyle;
-};
-
-// Struct member
-struct Member {
-  Member *next;
-  Type *ty;
-  Token *name;
-  int64_t offset;
-  int idx;
-  int alt_align;
-  bool is_packed;
-
-  bool is_bitfield;
-  bool is_aligned_bitfield;
-  int bit_offset;
-  int bit_width;
 };
 
 extern Type *ty_void;
@@ -1088,7 +723,11 @@ void run_linker(StringArray *paths, StringArray *args, const char *output);
 // main.c
 //
 
-typedef enum { STD_C89, STD_C94, STD_C99, STD_C11, STD_C17, STD_C23 } StdVer;
+typedef struct Slimcc_Ctx {
+  Slimcc_Arena cc1_arena;
+  Slimcc_Arena ast_arena;
+  Slimcc_Arena pp_arena;
+} Slimcc_Ctx;
 
 typedef enum {
   LT_RELO,
@@ -1119,52 +758,5 @@ void run_assembler_gnustyle(StringArray *as_args, const char *input, const char 
 void run_linker_gnustyle(StringArray *paths, StringArray *inputs, const char *output,
                          const char *ldso_path, const char *libpath,
                          const char *gcclibpath);
-
-extern char *argv0;
-extern StringArray include_paths;
-extern StringArray iquote_paths;
-extern StringArray display_files;
-extern bool opt_E;
-extern bool opt_dM;
-extern int opt_fpic;
-extern int opt_fpie;
-extern bool opt_femulated_tls;
-extern int opt_fn_align;
-extern bool opt_use_plt;
-extern bool opt_fcommon;
-extern bool opt_optimize;
-extern bool opt_reuse_stack;
-extern bool opt_g;
-extern bool opt_func_sections;
-extern bool opt_data_sections;
-extern bool opt_werror;
-extern const char *opt_visibility;
-extern bool opt_cc1_asm_pp;
-extern StdVer opt_std;
-extern bool is_iso_std;
-extern bool opt_fdefer_ts;
-extern bool opt_short_enums;
-extern bool opt_gnu_keywords;
-extern bool opt_gnu89_inline;
-extern bool opt_ms_anon_struct;
-extern bool opt_disable_visibility;
-extern bool opt_fake_always_inline;
-
-extern bool opt_pie;
-extern bool opt_nopie;
-extern bool opt_pthread;
-extern bool opt_r;
-extern bool opt_rdynamic;
-extern bool opt_static;
-extern bool opt_static_pie;
-extern bool opt_static_libgcc;
-extern bool opt_shared;
-extern bool opt_s;
-extern bool opt_nostartfiles;
-extern bool opt_nodefaultlibs;
-extern bool opt_nolibc;
-extern const char *default_ld;
-extern const char *default_as;
-extern const char *dumpmachine_str;
 
 #endif

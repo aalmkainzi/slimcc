@@ -22,20 +22,7 @@ typedef struct {
 StringArray include_paths;
 StringArray iquote_paths;
 StringArray display_files;
-bool opt_fcommon;
-int opt_fpic;
-int opt_fpie;
-bool opt_femulated_tls;
-int opt_fn_align = 1;
-bool opt_use_plt = true;
-bool opt_optimize = true;
-bool opt_reuse_stack = true;
-bool opt_g;
-bool opt_func_sections;
-bool opt_data_sections;
 bool opt_werror;
-bool opt_cc1_asm_pp;
-const char *opt_visibility;
 StdVer opt_std = STD_C17;
 bool is_iso_std;
 bool opt_fdefer_ts;
@@ -43,49 +30,10 @@ bool opt_short_enums;
 bool opt_gnu_keywords;
 bool opt_gnu89_inline;
 bool opt_ms_anon_struct;
-bool opt_disable_visibility;
-bool opt_fake_always_inline;
 
 static StringArray opt_imacros;
 static StringArray opt_include;
-bool opt_E;
-bool opt_dM;
-static bool opt_P;
-static bool opt_M;
-static bool opt_MM;
-static bool opt_MD;
-static bool opt_MG;
-static bool opt_MP;
-static bool opt_S;
-static bool opt_c;
-static bool opt_verbose;
-static bool opt_verbose_noop;
-static bool opt_pipe;
-static bool nofork;
 
-bool opt_pie;
-bool opt_nopie;
-bool opt_pthread;
-bool opt_r;
-bool opt_rdynamic;
-bool opt_static;
-bool opt_static_pie;
-bool opt_static_libgcc;
-bool opt_shared;
-bool opt_s;
-bool opt_nostartfiles;
-bool opt_nodefaultlibs;
-bool opt_nolibc;
-const char *default_ld = "ld";
-const char *default_as = "as";
-const char *dumpmachine_str;
-static const char *opt_use_ld;
-static const char *opt_use_as;
-static const char *opt_MF;
-static const char *opt_MT;
-static const char *opt_o;
-
-static StringArray ld_paths;
 static StringArray sysincl_paths;
 static StringArray dep_files;
 static StringArray tmpfiles;
@@ -93,9 +41,6 @@ static const char *tmp_folder;
 static StringArray as_args;
 static MacroChangeArr macrodefs;
 static int incl_cnt;
-
-static bool is_fork_child;
-char *argv0;
 
 static void cc1(const char *input_file, const char *output, bool is_asm_pp);
 
@@ -385,26 +330,6 @@ static int parse_args(int argc, char **argv, StringArray *input_args) {
     if (*argv[i] != '-' || argv[i][1] == '\0') {
       strarray_push(input_args, argv[i]);
       continue;
-    }
-
-    if (!strcmp(argv[i], "-###")) {
-      opt_verbose_noop = opt_verbose = true;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "-v") || !strcmp(argv[i], "--verbose")) {
-      opt_verbose = true;
-      continue;
-    }
-
-    if (!strcmp(argv[i], "--help")) {
-      puts("slimcc [ -o <path> ] <file>");
-      exit(0);
-    }
-
-    if (!strcmp(argv[i], "--version")) {
-      version();
-      exit(0);
     }
 
     if (!strcmp(argv[i], "-dumpmachine")) {

@@ -1,11 +1,5 @@
 #include "slimcc.h"
 
-typedef struct {
-  Obj *var;
-  Type *type_def;
-  EnumVal *enum_val;
-} VarScope;
-
 typedef enum {
   PCD_MUL,
   PCD_ADD,
