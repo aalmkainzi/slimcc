@@ -205,12 +205,6 @@ typedef struct Slimcc_Arena {
 } Slimcc_Arena;
 
 typedef struct {
-  Slimcc_HashMap vars; // hm of VarScope
-  Slimcc_HashMap tags; // hm of Type
-  struct Slimcc_Ctx *ctx;
-} Slimcc_GlobalDecls;
-
-typedef struct {
   Slimcc_Obj *var;
   Slimcc_Type *type_def;
   Slimcc_EnumVal *enum_val;
@@ -228,7 +222,7 @@ struct Slimcc_File {
   bool is_placeholder;
 };
 
-struct Token {
+struct Slimcc_Token {
   Slimcc_Token *next;
   Slimcc_TokenKind kind : 16;
   bool at_bol : 1;      // True if this token is at beginning of line
@@ -257,7 +251,7 @@ struct Token {
   };
 };
 
-struct EnumVal {
+struct Slimcc_EnumVal {
   Slimcc_EnumVal *next;
   Slimcc_Token *name;
   int64_t val;
@@ -265,7 +259,7 @@ struct EnumVal {
 };
 
 // Struct member
-struct Member {
+struct Slimcc_Member {
   Slimcc_Member *next;
   Slimcc_Type *ty;
   Slimcc_Token *name;
@@ -280,7 +274,7 @@ struct Member {
   int bit_width;
 };
 
-struct Obj {
+struct Slimcc_Obj {
   Slimcc_Obj *next;
   char *name;
   Slimcc_Type *ty;
@@ -327,7 +321,7 @@ struct Obj {
   uint16_t dtor_prior;
 };
 
-struct Type {
+struct Slimcc_Type {
   Slimcc_TypeKind kind;
   int64_t size;
   int32_t align;
@@ -393,6 +387,12 @@ typedef struct {
   bool opt_gnu89_inline;
   bool opt_ms_anon_struct;
 } Slimcc_Options;
+
+typedef struct {
+  Slimcc_HashMap vars; // hm of Slimcc_VarScope
+  Slimcc_HashMap tags; // hm of Slimcc_Type
+  struct Slimcc_Ctx *ctx;
+} Slimcc_GlobalDecls;
 
 Slimcc_GlobalDecls slimcc_parse_global_decls(Slimcc_Options opts, Slimcc_Error *err);
 void slimcc_free_global_decls(Slimcc_GlobalDecls *decls);

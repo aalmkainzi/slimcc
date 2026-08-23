@@ -8,40 +8,6 @@ typedef enum {
   FILE_LDARG,
 } FileType;
 
-typedef struct {
-  const char *arg;
-  bool is_def;
-} MacroChange;
-
-typedef struct {
-  MacroChange *data;
-  int capacity;
-  int len;
-} MacroChangeArr;
-
-StringArray include_paths;
-StringArray iquote_paths;
-StringArray display_files;
-bool opt_werror;
-StdVer opt_std = STD_C17;
-bool is_iso_std;
-bool opt_fdefer_ts;
-bool opt_short_enums;
-bool opt_gnu_keywords;
-bool opt_gnu89_inline;
-bool opt_ms_anon_struct;
-
-static StringArray opt_imacros;
-static StringArray opt_include;
-
-static StringArray sysincl_paths;
-static StringArray dep_files;
-static StringArray tmpfiles;
-static const char *tmp_folder;
-static StringArray as_args;
-static MacroChangeArr macrodefs;
-static int incl_cnt;
-
 static void cc1(const char *input_file, const char *output, bool is_asm_pp);
 
 #if defined(USE_ASAN)

@@ -190,6 +190,7 @@ typedef Slimcc_Arena       Arena;
 typedef Slimcc_QualMask    QualMask;
 typedef Slimcc_TypeKind    TypeKind;
 typedef Slimcc_StringArray StringArray;
+typedef Slimcc_VarScope    VarScope;
 
 typedef struct Node Node;
 typedef struct Relocation Relocation;
@@ -723,10 +724,31 @@ void run_linker(StringArray *paths, StringArray *args, const char *output);
 // main.c
 //
 
+typedef struct {
+  const char *arg;
+  bool is_def;
+} MacroChange;
+
+typedef struct {
+  MacroChange *data;
+  int capacity;
+  int len;
+} MacroChangeArr;
+
 typedef struct Slimcc_Ctx {
   Slimcc_Arena cc1_arena;
   Slimcc_Arena ast_arena;
   Slimcc_Arena pp_arena;
+  StringArray opt_imacros;
+  StringArray opt_include;
+ 
+  StringArray sysincl_paths;
+  StringArray dep_files;
+  StringArray tmpfiles;
+  const char *tmp_folder;
+  StringArray as_args;
+  MacroChangeArr macrodefs;
+  int incl_cnt;
 } Slimcc_Ctx;
 
 typedef enum {
@@ -746,17 +768,5 @@ void add_dep_file(const char *path, bool is_sys);
 char *find_dir_w_file(const char *pattern);
 void run_subprocess(const char **argv);
 void add_include_path(StringArray *arr, const char *s);
-
-LinkType link_type_gnustyle(void);
-void ldarg_gnu_base(StringArray *arr, const char *output);
-void ldarg_gnu_linktype(StringArray *arr, LinkType lt, const char *ldso_path);
-void ldarg_gnu_crtbegin(StringArray *arr, LinkType lt, const char *gcc_libpath);
-void ldarg_gnu_inputs(StringArray *arr, StringArray *paths, StringArray *args);
-void ldarg_gnu_lc_lgcc(StringArray *arr, LinkType lt, bool has_libgcc);
-void ldarg_gnu_crtend(StringArray *arr, LinkType lt, const char *gcc_libpath);
-void run_assembler_gnustyle(StringArray *as_args, const char *input, const char *output);
-void run_linker_gnustyle(StringArray *paths, StringArray *inputs, const char *output,
-                         const char *ldso_path, const char *libpath,
-                         const char *gcclibpath);
 
 #endif
