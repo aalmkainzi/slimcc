@@ -840,6 +840,9 @@ struct Slimcc_Ctx {
   bool at_bol;
   // True if the current position follows a space character
   bool has_space;
+
+  // type
+  Type *vp;
 };
 
 typedef enum {

@@ -554,7 +554,6 @@ bool is_compatible(Type *t1, Type *t2) {
 
 Type *pointer_to(Type *base) {
   if (base == ty_void) {
-    static Type *vp;
     if (!vp) {
       vp = new_type(TY_PTR, 8, 8);
       vp->base = base;
