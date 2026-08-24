@@ -78,18 +78,6 @@ void add_include_path(StringArray *arr, const char *path) {
   strarray_push(arr, path);
 }
 
-static FileType parse_opt_x(const char *s) {
-  if (!strcmp(s, "c"))
-    return FILE_C;
-  if (!strcmp(s, "assembler"))
-    return FILE_ASM;
-  if (!strcmp(s, "assembler-with-cpp"))
-    return FILE_PP_ASM;
-  if (!strcmp(s, "none"))
-    return FILE_NONE;
-  error("<command line>: unknown argument for -x: %s", s);
-}
-
 static bool set_bool(const char *p, bool val, const char *str, bool *opt) {
   if (!strcmp(p, str)) {
     *opt = val;
@@ -921,20 +909,6 @@ bool ignore_missing_dep(const char *path, const char *filename, Token *tok) {
   return false;
 }
 
-void add_dep_file(const char *path, bool is_sys) {
-  if (opt_M || opt_MD) {
-    if (is_sys && opt_MM)
-      return;
-
-    static HashMap map;
-    HashEntry *ent = hashmap_get_or_insert(&map, path, strlen(path));
-    if (ent->val)
-      return;
-    ent->val = (void *)1;
-    strarray_push(&dep_files, path);
-  }
-}
-
 static const char *skip_dot_slash(const char *p) {
   if (*p == '.' && p[1] == '/') {
     for (p += 2; *p == '/';)
@@ -1047,17 +1021,6 @@ static char *find_file(const char *pattern) {
   if (buf.gl_pathc > 0)
     path = strdup(buf.gl_pathv[buf.gl_pathc - 1]);
   globfree(&buf);
-  return path;
-}
-
-char *find_dir_w_file(const char *pattern) {
-  static char *path;
-  if (!path) {
-    path = find_file(pattern);
-    if (!path)
-      return NULL;
-    path = dirname(path);
-  }
   return path;
 }
 

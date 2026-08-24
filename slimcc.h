@@ -859,8 +859,6 @@ bool file_exists(const char *path);
 bool in_sysincl_path(int idx);
 bool ignore_missing_dep(const char *path, const char *filename, Token *tok);
 void add_dep_file(const char *path, bool is_sys);
-char *find_dir_w_file(const char *pattern);
-void run_subprocess(const char **argv);
 void add_include_path(StringArray *arr, const char *s);
 
 #endif
