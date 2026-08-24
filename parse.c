@@ -137,40 +137,6 @@ typedef struct {
   bool let_volatile;
 } EvalContext;
 
-typedef struct JumpContext JumpContext;
-struct JumpContext {
-  JumpContext *next;
-  DeferStmt *dfr_lvl;
-  Token *dfr_ctx;
-  Token *labels;
-  Node *node;
-} *jump_ctx;
-
-struct {
-  int *data;
-  int capacity;
-  int cnt;
-} pack_stk;
-
-typedef struct FuncContext FuncContext;
-struct FuncContext {
-  Obj *fn;
-  Obj *fnname;
-  Node *gotos;
-  Node *labels;
-  DeferStmt *defr;
-  bool use_vla;
-  bool dont_dealloc_vla;
-  bool is_static_init_context;
-  Token *defr_ctx;
-};
-
-static Obj *globals = &(Obj){0};
-static Scope *scope = &(Scope){0};
-static HashMap symbols;
-static FuncContext *fnctx;
-static bool *eval_recover;
-
 static bool is_type_kw(TokenKind kind);
 static bool is_typename(Token *tok);
 static bool comma_list(Token **rest, Token **tok_rest, TokenKind end, bool skip_comma);

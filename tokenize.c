@@ -11,14 +11,6 @@ struct SlashDelta {
   int len;
 };
 
-static File *current_file;
-
-// True if the current position is at the beginning of a line
-static bool at_bol;
-
-// True if the current position follows a space character
-static bool has_space;
-
 static bool read_ucn(const char **new_pos, const char *p, uint32_t *val, bool *invalid);
 static void canonicalize_newline(char *p);
 static void remove_backslash_newline(char *p, SlashDelta *dlt);

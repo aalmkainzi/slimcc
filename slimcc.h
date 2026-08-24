@@ -200,6 +200,8 @@ typedef struct AsmContext AsmContext;
 typedef struct FuncObj FuncObj;
 typedef struct SlashDelta SlashDelta;
 
+typedef struct Slimcc_Ctx Slimcc_Ctx;
+
 //
 // alloc.c
 //
@@ -606,41 +608,41 @@ union FPVal {
   float f;
 };
 
-extern Type *ty_void;
-extern Type *ty_bool;
-extern Type *ty_nullptr;
+extern Type *slimcc_ty_void;
+extern Type *slimcc_ty_bool;
+extern Type *slimcc_ty_nullptr;
 
-extern Type *ty_pchar;
+extern Type *slimcc_ty_pchar;
 
-extern Type *ty_char;
-extern Type *ty_short;
-extern Type *ty_int;
-extern Type *ty_long;
-extern Type *ty_llong;
+extern Type *slimcc_ty_char;
+extern Type *slimcc_ty_short;
+extern Type *slimcc_ty_int;
+extern Type *slimcc_ty_long;
+extern Type *slimcc_ty_llong;
 
-extern Type *ty_uchar;
-extern Type *ty_ushort;
-extern Type *ty_uint;
-extern Type *ty_ulong;
-extern Type *ty_ullong;
+extern Type *slimcc_ty_uchar;
+extern Type *slimcc_ty_ushort;
+extern Type *slimcc_ty_uint;
+extern Type *slimcc_ty_ulong;
+extern Type *slimcc_ty_ullong;
 
-extern Type *ty_float;
-extern Type *ty_double;
-extern Type *ty_ldouble;
+extern Type *slimcc_ty_float;
+extern Type *slimcc_ty_double;
+extern Type *slimcc_ty_ldouble;
 
-extern Type *ty_size_t;
-extern Type *ty_ptrdiff_t;
+extern Type *slimcc_ty_size_t;
+extern Type *slimcc_ty_ptrdiff_t;
 
-extern Type *ty_intmax_t;
-extern Type *ty_uintmax_t;
-extern Type *ty_eval_int;
+extern Type *slimcc_ty_intmax_t;
+extern Type *slimcc_ty_uintmax_t;
+extern Type *slimcc_ty_eval_int;
 
-extern Type *ty_char16_t;
-extern Type *ty_char32_t;
-extern Type *ty_wchar_t;
+extern Type *slimcc_ty_char16_t;
+extern Type *slimcc_ty_char32_t;
+extern Type *slimcc_ty_wchar_t;
 
-extern Type *enum_ty[8];
-extern EnumType ety_of_int;
+extern Type *slimcc_enum_ty[8];
+extern EnumType slimcc_ety_of_int;
 
 bool is_pow_of_two(uint64_t val);
 bool is_integer(Type *ty);
@@ -691,7 +693,6 @@ void _add_type(Node *node);
 // codegen.c
 //
 
-int codegen(Obj *prog, FILE *out);
 void prepare_funcall(Node *node, Scope *scope);
 void prepare_inline_asm(Node *node);
 int64_t align_to(int64_t n, int64_t align);
@@ -735,13 +736,55 @@ typedef struct {
   int len;
 } MacroChangeArr;
 
-typedef struct Slimcc_Ctx {
+typedef struct JumpContext JumpContext;
+
+typedef struct FuncContext FuncContext;
+struct FuncContext {
+  Obj *fn;
+  Obj *fnname;
+  Node *gotos;
+  Node *labels;
+  DeferStmt *defr;
+  bool use_vla;
+  bool dont_dealloc_vla;
+  bool is_static_init_context;
+  Token *defr_ctx;
+};
+
+typedef struct {
+  Token *tok;
+  bool is_else;
+  bool been_active;
+} CondIncl;
+
+typedef Token *macro_handler_fn(Token *);
+typedef struct Macro Macro;
+
+struct Macro {
+  Token *stop_tok;
+  Macro *locked_next;
+  Token *params;
+  Token *body;
+  macro_handler_fn *handler;
+  int arg_cnt;
+  bool is_objlike;
+  bool is_locked;
+  bool has_va_arg;
+  bool align;
+};
+
+struct Slimcc_Ctx {
+  // alloc
   Slimcc_Arena cc1_arena;
   Slimcc_Arena ast_arena;
   Slimcc_Arena pp_arena;
+  bool free_alloc;
+  Slimcc_Pool *pool_freelist;
+
+  // main
   StringArray opt_imacros;
   StringArray opt_include;
- 
+
   StringArray sysincl_paths;
   StringArray dep_files;
   StringArray tmpfiles;
@@ -749,7 +792,55 @@ typedef struct Slimcc_Ctx {
   StringArray as_args;
   MacroChangeArr macrodefs;
   int incl_cnt;
-} Slimcc_Ctx;
+
+  // parse
+  struct JumpContext {
+    JumpContext *next;
+    DeferStmt *dfr_lvl;
+    Token *dfr_ctx;
+    Token *labels;
+    Node *node;
+  } *jump_ctx;
+  
+  struct {
+    int *data;
+    int capacity;
+    int cnt;
+  } pack_stk;
+  
+  Scope *scope;
+  bool *eval_recover;
+
+  // codegen
+  // those 3 will probably need to be deleted
+  Obj *globals;
+  HashMap symbols;
+  FuncContext *fnctx;
+
+  // pp
+  struct {
+    CondIncl *data;
+    int capacity;
+    int cnt;
+  } cond_incl;
+
+  Macro *locked_macros;
+  HashMap macros;
+  HashMap pragma_once;
+  HashMap include_guards;
+  Token *last_alloc_tok;
+  Token *tok_freelist;
+  
+  const char *base_file;
+  struct tm *cur_time;
+
+  // tokenize
+  File *current_file;
+  // True if the current position is at the beginning of a line
+  bool at_bol;
+  // True if the current position follows a space character
+  bool has_space;
+};
 
 typedef enum {
   LT_RELO,

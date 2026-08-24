@@ -5,15 +5,8 @@
 
 struct Pool {
   char buf[ARENA_POOL_SIZE];
-  Pool *next;
+  Slimcc_Pool *next;
 };
-
-Arena ast_arena;
-Arena cc1_arena;
-Arena pp_arena;
-bool free_alloc = EAGER_FREE;
-
-static Pool *pool_freelist;
 
 bool check_mem_usage(void) {
   struct rusage stat;

@@ -9,122 +9,7 @@
 #define STRBUF_SZ 192
 #define STRBUF_SZ2 208
 
-typedef enum {
-  REGSZ_8 = 0,
-  REGSZ_16,
-  REGSZ_32,
-  REGSZ_64,
-} RegSz;
-
-typedef enum {
-  REG_X64_NULL = 0,
-  REG_X64_AX,
-  REG_X64_CX,
-  REG_X64_DX,
-  REG_X64_SI,
-  REG_X64_DI,
-  REG_X64_R8,
-  REG_X64_R9,
-  REG_X64_R10,
-  REG_X64_R11,
-  REG_X64_R12,
-  REG_X64_R13,
-  REG_X64_R14,
-  REG_X64_R15,
-  REG_X64_BX,
-  REG_X64_BP,
-  REG_X64_SP,
-  REG_X64_XMM0,
-  REG_X64_XMM1,
-  REG_X64_XMM2,
-  REG_X64_XMM3,
-  REG_X64_XMM4,
-  REG_X64_XMM5,
-  REG_X64_XMM6,
-  REG_X64_XMM7,
-  REG_X64_XMM8,
-  REG_X64_XMM9,
-  REG_X64_XMM10,
-  REG_X64_XMM11,
-  REG_X64_XMM12,
-  REG_X64_XMM13,
-  REG_X64_XMM14,
-  REG_X64_XMM15,
-  REG_X64_X87_ST0,
-  REG_X64_X87_ST1,
-  REG_X64_X87_ST2,
-  REG_X64_X87_ST3,
-  REG_X64_X87_ST4,
-  REG_X64_X87_ST5,
-  REG_X64_X87_ST6,
-  REG_X64_X87_ST7,
-  REG_X64_END
-} Reg;
-
-static const char *const regs[REG_X64_XMM0][4] = {
-  [REG_X64_NULL] = {"null", "null", "null", "null"},
-  [REG_X64_SP] = {"%spl", "%sp", "%esp", "%rsp"},
-  [REG_X64_BP] = {"%bpl", "%bp", "%ebp", "%rbp"},
-  [REG_X64_AX] = {"%al", "%ax", "%eax", "%rax"},
-  [REG_X64_BX] = {"%bl", "%bx", "%ebx", "%rbx"},
-  [REG_X64_CX] = {"%cl", "%cx", "%ecx", "%rcx"},
-  [REG_X64_DX] = {"%dl", "%dx", "%edx", "%rdx"},
-  [REG_X64_SI] = {"%sil", "%si", "%esi", "%rsi"},
-  [REG_X64_DI] = {"%dil", "%di", "%edi", "%rdi"},
-  [REG_X64_R8] = {"%r8b", "%r8w", "%r8d", "%r8"},
-  [REG_X64_R9] = {"%r9b", "%r9w", "%r9d", "%r9"},
-  [REG_X64_R10] = {"%r10b", "%r10w", "%r10d", "%r10"},
-  [REG_X64_R11] = {"%r11b", "%r11w", "%r11d", "%r11"},
-  [REG_X64_R12] = {"%r12b", "%r12w", "%r12d", "%r12"},
-  [REG_X64_R13] = {"%r13b", "%r13w", "%r13d", "%r13"},
-  [REG_X64_R14] = {"%r14b", "%r14w", "%r14d", "%r14"},
-  [REG_X64_R15] = {"%r15b", "%r15w", "%r15d", "%r15"},
-};
-
-static FILE *output_file;
-
-static const char *const argreg32[] = {"%edi", "%esi", "%edx", "%ecx", "%r8d", "%r9d"};
-static const char *const argreg64[] = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
-
-static const Reg argreg[] = {REG_X64_DI, REG_X64_SI, REG_X64_DX,
-                             REG_X64_CX, REG_X64_R8, REG_X64_R9};
-
-static const char *const tmpreg32[] = {"%edi", "%esi", "%r8d", "%r9d", "%r10d", "%r11d"};
-static const char *const tmpreg64[] = {"%rdi", "%rsi", "%r8", "%r9", "%r10", "%r11"};
-
-static const char rip[] = "%rip";
-static const char rbp[] = "%rbp";
-static const char rbx[] = "%rbx";
-
-static Obj *codegen_fn;
-static const char *lvar_ptr;
-static int va_gp_start;
-static int va_fp_start;
-static int va_st_start;
-static int vla_base_ofs;
-static int rtn_ptr_ofs;
-static int lvar_stk_sz;
-static int peak_stk_usage;
-static int tmpbuf_sz;
-static int64_t rtn_label;
-static HashMap *ext_refs;
-static bool *debug_file_used;
-static int *debug_file_id;
-static StringArray debug_files;
-
-static struct {
-  bool in[REG_X64_END];
-  bool out[REG_X64_END];
-} asm_use;
-
 #define ASMOP_BUFSZ 32
-static int asm_ops_cnt;
-static AsmParam *asm_ops[ASMOP_BUFSZ];
-
-static struct {
-  const char *rbp;
-  const char *rbx;
-} asm_alt_ptr;
 
 typedef enum {
   SL_GP,
@@ -141,20 +26,6 @@ typedef struct {
   const char *push_reg;
   long loc;
 } Slot;
-
-static struct {
-  Slot *data;
-  int capacity;
-  int depth;
-} tmp_stack;
-
-struct AsmContext {
-  Reg output_tmp1;
-  Reg output_tmp2;
-  Reg frame_ptr1;
-  Reg frame_ptr2;
-  uint32_t clobber_mask;
-};
 
 struct FuncObj {
   char *buf;

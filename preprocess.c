@@ -5,50 +5,11 @@ typedef struct {
   Token *expanded;
 } MacroArg;
 
-typedef Token *macro_handler_fn(Token *);
-
-typedef struct Macro Macro;
-struct Macro {
-  Token *stop_tok;
-  Macro *locked_next;
-  Token *params;
-  Token *body;
-  macro_handler_fn *handler;
-  int arg_cnt;
-  bool is_objlike;
-  bool is_locked;
-  bool has_va_arg;
-  bool align;
-};
-
 typedef struct {
   Macro *m;
   MacroArg *args;
   bool omit_comma;
 } MacroContext;
-
-typedef struct {
-  Token *tok;
-  bool is_else;
-  bool been_active;
-} CondIncl;
-
-static struct {
-  CondIncl *data;
-  int capacity;
-  int cnt;
-} cond_incl;
-
-static Macro *locked_macros;
-static HashMap macros;
-static HashMap pragma_once;
-static HashMap include_guards;
-
-Token *last_alloc_tok;
-Token *tok_freelist;
-
-static const char *base_file;
-struct tm *cur_time;
 
 static Token *preprocess3(Token *tok);
 static bool has_macro(Token *tok);

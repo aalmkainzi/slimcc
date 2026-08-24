@@ -1,40 +1,40 @@
 #include "slimcc.h"
 
-Type *ty_void = &(Type){.kind = TY_VOID, .size = 1, .align = 1};
-Type *ty_bool = &(Type){.kind = TY_BOOL, .size = 1, .align = 1, .is_unsigned = true};
-Type *ty_nullptr = &(Type){.kind = TY_NULLPTR, .size = 8, .align = 8};
+Type *slimcc_ty_void = &(Type){.kind = TY_VOID, .size = 1, .align = 1};
+Type *slimcc_ty_bool = &(Type){.kind = TY_BOOL, .size = 1, .align = 1, .is_unsigned = true};
+Type *slimcc_ty_nullptr = &(Type){.kind = TY_NULLPTR, .size = 8, .align = 8};
 
-Type *ty_pchar = &(Type){.kind = TY_PCHAR, .size = 1, .align = 1};
+Type *slimcc_ty_pchar = &(Type){.kind = TY_PCHAR, .size = 1, .align = 1};
 
-Type *ty_char = &(Type){.kind = TY_CHAR, .size = 1, .align = 1};
-Type *ty_short = &(Type){.kind = TY_SHORT, .size = 2, .align = 2};
-Type *ty_int = &(Type){.kind = TY_INT, .size = 4, .align = 4};
-Type *ty_long = &(Type){.kind = TY_LONG, .size = 8, .align = 8};
-Type *ty_llong = &(Type){.kind = TY_LONGLONG, .size = 8, .align = 8};
+Type *slimcc_ty_char = &(Type){.kind = TY_CHAR, .size = 1, .align = 1};
+Type *slimcc_ty_short = &(Type){.kind = TY_SHORT, .size = 2, .align = 2};
+Type *slimcc_ty_int = &(Type){.kind = TY_INT, .size = 4, .align = 4};
+Type *slimcc_ty_long = &(Type){.kind = TY_LONG, .size = 8, .align = 8};
+Type *slimcc_ty_llong = &(Type){.kind = TY_LONGLONG, .size = 8, .align = 8};
 
-Type *ty_uchar = &(Type){.kind = TY_CHAR, .size = 1, .align = 1, .is_unsigned = true};
-Type *ty_ushort = &(Type){.kind = TY_SHORT, .size = 2, .align = 2, .is_unsigned = true};
-Type *ty_uint = &(Type){.kind = TY_INT, .size = 4, .align = 4, .is_unsigned = true};
-Type *ty_ulong = &(Type){.kind = TY_LONG, .size = 8, .align = 8, .is_unsigned = true};
-Type *ty_ullong = &(Type){.kind = TY_LONGLONG, .size = 8, .align = 8, .is_unsigned = true};
+Type *slimcc_ty_uchar = &(Type){.kind = TY_CHAR, .size = 1, .align = 1, .is_unsigned = true};
+Type *slimcc_ty_ushort = &(Type){.kind = TY_SHORT, .size = 2, .align = 2, .is_unsigned = true};
+Type *slimcc_ty_uint = &(Type){.kind = TY_INT, .size = 4, .align = 4, .is_unsigned = true};
+Type *slimcc_ty_ulong = &(Type){.kind = TY_LONG, .size = 8, .align = 8, .is_unsigned = true};
+Type *slimcc_ty_ullong = &(Type){.kind = TY_LONGLONG, .size = 8, .align = 8, .is_unsigned = true};
 
-Type *ty_float = &(Type){.kind = TY_FLOAT, .size = 4, .align = 4};
-Type *ty_double = &(Type){.kind = TY_DOUBLE, .size = 8, .align = 8};
-Type *ty_ldouble = &(Type){.kind = TY_LDOUBLE, .size = 16, .align = 16};
+Type *slimcc_ty_float = &(Type){.kind = TY_FLOAT, .size = 4, .align = 4};
+Type *slimcc_ty_double = &(Type){.kind = TY_DOUBLE, .size = 8, .align = 8};
+Type *slimcc_ty_ldouble = &(Type){.kind = TY_LDOUBLE, .size = 16, .align = 16};
 
-Type *ty_size_t;
-Type *ty_ptrdiff_t;
+Type *slimcc_ty_size_t;
+Type *slimcc_ty_ptrdiff_t;
 
-Type *ty_intmax_t;
-Type *ty_uintmax_t;
-Type *ty_eval_int;
+Type *slimcc_ty_intmax_t;
+Type *slimcc_ty_uintmax_t;
+Type *slimcc_ty_eval_int;
 
-Type *ty_char16_t;
-Type *ty_char32_t;
-Type *ty_wchar_t;
+Type *slimcc_ty_char16_t;
+Type *slimcc_ty_char32_t;
+Type *slimcc_ty_wchar_t;
 
-Type *enum_ty[8];
-EnumType ety_of_int;
+Type *slimcc_enum_ty[8];
+EnumType slimcc_ety_of_int;
 
 void init_ty_lp64(void) {
   define_macro("_LP64", "1");
@@ -66,26 +66,26 @@ void init_ty_lp64(void) {
   define_macro("__INTMAX_TYPE__", "long int");
   define_macro("__UINTMAX_TYPE__", "long unsigned int");
 
-  ty_size_t = ty_ulong;
-  ty_ptrdiff_t = ty_long;
-  ty_wchar_t = ty_int;
+  slimcc_ty_size_t = slimcc_ty_ulong;
+  slimcc_ty_ptrdiff_t = slimcc_ty_long;
+  slimcc_ty_wchar_t = slimcc_ty_int;
 
-  ty_intmax_t = ty_long;
-  ty_uintmax_t = ty_ulong;
+  slimcc_ty_intmax_t = slimcc_ty_long;
+  slimcc_ty_uintmax_t = slimcc_ty_ulong;
 
-  ty_char16_t = ty_ushort;
-  ty_char32_t = ty_uint;
+  slimcc_ty_char16_t = slimcc_ty_ushort;
+  slimcc_ty_char32_t = slimcc_ty_uint;
 
-  enum_ty[ETY_I8] = ty_char;
-  enum_ty[ETY_U8] = ty_uchar;
-  enum_ty[ETY_I16] = ty_short;
-  enum_ty[ETY_U16] = ty_ushort;
-  enum_ty[ETY_I32] = ty_int;
-  enum_ty[ETY_U32] = ty_uint;
-  enum_ty[ETY_I64] = ty_long;
-  enum_ty[ETY_U64] = ty_ulong;
+  slimcc_enum_ty[ETY_I8] = slimcc_ty_char;
+  slimcc_enum_ty[ETY_U8] = slimcc_ty_uchar;
+  slimcc_enum_ty[ETY_I16] = slimcc_ty_short;
+  slimcc_enum_ty[ETY_U16] = slimcc_ty_ushort;
+  slimcc_enum_ty[ETY_I32] = slimcc_ty_int;
+  slimcc_enum_ty[ETY_U32] = slimcc_ty_uint;
+  slimcc_enum_ty[ETY_I64] = slimcc_ty_long;
+  slimcc_enum_ty[ETY_U64] = slimcc_ty_ulong;
 
-  ety_of_int = ETY_I32;
+  slimcc_ety_of_int = ETY_I32;
 }
 
 Type *new_type(TypeKind kind, int64_t size, int32_t align) {
