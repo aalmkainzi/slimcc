@@ -4834,6 +4834,7 @@ static void struct_members(Token **rest, Token *tok, Type *ty) {
 
       CMember *mem = calloc(1, sizeof(CMember));
       mem->name = name;
+      chk_mem_name2(&names, mem->name);
 
       Obj *obj = new_anon_gvar(ty);
       tok = skip_tk(tok, TK_EQ);
