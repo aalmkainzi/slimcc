@@ -4833,7 +4833,9 @@ static void struct_members(Token **rest, Token *tok, Type *ty) {
         error_tok(tok, "expected member name");
 
       CMember *mem = calloc(1, sizeof(CMember));
-      Obj *obj = new_gvar(arena_copy_string(&cc1_arena, name->loc, name->len), ty);
+      mem->name = name;
+
+      Obj *obj = new_anon_gvar(ty);
       tok = skip_tk(tok, TK_EQ);
       constexpr_initializer(&tok, tok, obj, obj);
       mem->obj = obj;
@@ -5317,7 +5319,7 @@ static Node *compound_literal_or_constexpr_member(Token **rest, Token *tok) {
 
     *rest = tok;
     for (CMember *mem = ty->constexpr_members; mem; mem = mem->next) {
-      if (strncmp(mem->obj->name, name->loc, name->len) == 0) {
+      if (strncmp(mem->name->loc, name->loc, name->len) == 0) {
         return new_var_node(mem->obj, name);
       }
     }

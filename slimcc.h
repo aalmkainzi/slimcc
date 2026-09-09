@@ -974,6 +974,7 @@ struct Member {
 };
 
 struct CMember {
+  Token *name;
   Obj *obj;
   CMember *next;
 };
