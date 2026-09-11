@@ -563,7 +563,7 @@ bool is_record_compat(Type *t1, Type *t2, bool is_redecl) {
     Type *t1 = cmem1->obj->ty;
     Type *t2 = cmem2->obj->ty;
 
-    if (strcmp(cmem1->obj->name, cmem2->obj->name) != 0)
+    if (!equal_tok(cmem1->name, cmem2->name))
       return false;
     if (!is_compatible2(t1, t2))
       return false;
