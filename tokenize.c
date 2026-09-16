@@ -1,4 +1,5 @@
 #include "slimcc.h"
+#include <ctype.h>
 
 typedef struct {
   int pos;
@@ -572,18 +573,18 @@ static bool stop_on_unbalanced_close_curly_brace(Token *tok, void *arg)
   }
 }
 
-static const char *interp_string_contains_interp(const char *p)
+static const char *fstring_find_specifier_begin(const char *p)
 {
   const char *start = p;
   for (; *p != '"'; p++) {
     if (*p == '\n' || *p == '\0')
       error_at(start, "unclosed string literal");
-    if(*p == '\\' && p[1] == '{')
+    if(*p == '%' && p[1] == '%')
     {
       p += 2;
       continue;
     }
-    if(*p == '{')
+    if(*p == '%')
       return p;
     if (*p == '\\')
       p++;
@@ -591,39 +592,122 @@ static const char *interp_string_contains_interp(const char *p)
   return NULL;
 }
 
+typedef struct {
+  bool force_sign : 1;
+  bool left_justify : 1;
+  bool space : 1;
+  bool pad_0 : 1;
+  bool hash : 1;
+} FormatSpecOpts;
+
+static char *skip_format_specifier_options(const char *f)
+{
+  // flags
+  while (f && *f != '\"')
+  {
+    switch (*f)
+    {
+      case '-':
+      case '+':
+      case ' ':
+      case '0':
+      case '#':
+        f++;
+        break;
+
+      default:
+        goto width;
+    }
+  }
+  
+  width:
+  if (isdigit(*f))
+  {
+    char *end;
+    strtoull(f, &end, 10);
+    f = end;
+  }
+  else if(*f == '*')
+  {
+    f++;
+  }
+  
+  // precision
+  if (*f == '.')
+  {
+    f++;
+    if (isdigit(*f))
+    {
+      char *end;
+      strtoull(f, &end, 10);
+      f = end;
+    }
+    else if(*f == '*')
+    {
+      f++;
+    }
+  }
+  
+  // length:
+  
+  {
+    if(memcmp(f, "hh", 2) == 0)
+      f++;
+    else if(memcmp(f, "h", 1) == 0 )
+      f++;
+    else if(memcmp(f, "ll", 2) == 0)
+      f++;
+    else if(memcmp(f, "l", 1) == 0 )
+      f++;
+    else if(memcmp(f, "L", 1) == 0 )
+      f++;
+    else if(memcmp(f, "z", 1) == 0 )
+      f++;
+  }
+  
+  return (char*) f;
+}
+
 static Token *read_interp_string_literal(const char *start, const char *quote, Type *ty)
 {
   // find $, if ${}, then parse prev ptr with cur as a string literal, make sure to dup it and replace $$ with $
-  Token strings_start = {};
+  Token literals_start = {};
+  Token specs_start   = {};
   Token interps_start = {};
-  Token *strings = &strings_start;
+  Token *literals = &literals_start;
+  Token *specs   = &specs_start;
   Token *interps = &interps_start;
 
   const char *it = quote + 2;
 
   while(true)
   {
-    const char *interp = interp_string_contains_interp(it);
+    const char *specifier = fstring_find_specifier_begin(it);
 
-    if(interp)
+    if(specifier)
     {
-      assert(*interp == '{');
+      assert(*specifier == '%');
 
-      strings = strings->interp_str_next = read_string_literal_given_end(it - 1, it - 1, interp, ty);
-      strings->next = new_token(TK_EOF, strings->loc + strings->len, strings->loc + strings->len);
+      literals = literals->format_literal_next = read_string_literal_given_end(it - 1, it - 1, specifier, ty);
+      literals->next = new_token(TK_EOF, literals->loc + literals->len, literals->loc + literals->len);
 
-      it += strings->len - 2;
-      assert(*it == '{');
+      it += literals->len - 2;
+      assert(*it == '%');
       
-      int braces_open = 1;
+      it = skip_format_specifier_options(it);
+      
       Token *end = NULL;
 
-      interps->interp_next = tokenize_cb(new_file("<built-in>", it + 1), NULL, &end, stop_on_unbalanced_close_curly_brace, &braces_open);
+      if (it[1] == '{')
+      {
+        int braces_open = 1;
+        interps->format_spec_interp_next = tokenize_cb(new_file("<built-in>", it + 1), NULL, &end, stop_on_unbalanced_close_curly_brace, &braces_open);
+      }
 
       assert(end);
 
       it = end->loc + end->len;
-      Token *last = interps->interp_next;
+      Token *last = interps->format_spec_interp_next;
 
       if(last == end)
       {

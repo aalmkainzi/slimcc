@@ -317,8 +317,9 @@ struct Token {
   int display_file_no;
   Type *ty; // Used if TK_INT_NUM or TK_STR
 
-  Token *interp_next;
-  Token *interp_str_next;
+  Token *format_spec_next;
+  Token *format_spec_interp_next;
+  Token *format_literal_next;
 
   ANON_UNION_START
   Token *attr_next;
