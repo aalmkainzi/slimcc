@@ -1938,7 +1938,7 @@ static Token *has_extension_macro(Token *start) {
   return new_bool_int_token(has_it, start, tok);
 }
 
-static Token *interp_count_macro(Token *start)
+static Token *format_specifier_count_macro(Token *start)
 {
   Token *tok = skip(start->next, "(");
 
@@ -1946,12 +1946,12 @@ static Token *interp_count_macro(Token *start)
     error_tok(start, "not an interpolated string");
 
   int counter = 0;
-  Token *interp = tok->interp_next;
+  Token *interp = tok->format_opt_next;
 
   while(interp)
   {
     counter += 1;
-    interp = interp->interp_next;
+    interp = interp->format_opt_next;
   }
 
   tok = skip(tok->next, ")");
@@ -1960,7 +1960,7 @@ static Token *interp_count_macro(Token *start)
   return new_num_token(counter, start, tok);
 }
 
-static Token *interp_literal_count_macro(Token *start)
+static Token *format_literal_count_macro(Token *start)
 {
   Token *tok = skip(start->next, "(");
 
@@ -1968,12 +1968,12 @@ static Token *interp_literal_count_macro(Token *start)
     error_tok(start, "not an interpolated string");
 
   int counter = 0;
-  Token *lit = tok->interp_str_next;
+  Token *lit = tok->format_literal_next;
 
   while(lit)
   {
     counter += 1;
-    lit = lit->interp_str_next;
+    lit = lit->format_literal_next;
   }
 
   tok = skip(tok->next, ")");
@@ -1982,7 +1982,7 @@ static Token *interp_literal_count_macro(Token *start)
   return new_num_token(counter, start, tok);
 }
 
-static Token *interp_list_macro(Token *start)
+static Token *format_list_macro(Token *start)
 {
   Token *tok = skip(start->next, "(");
 
@@ -1994,7 +1994,7 @@ static Token *interp_list_macro(Token *start)
   tok = tok->next;
   tok = skip(tok, ")");
 
-  Token *it = itok->interp_next;
+  Token *it = itok->format_opt_next;
 
   pop_macro_lock_until(start, tok);
 
@@ -2010,16 +2010,16 @@ static Token *interp_list_macro(Token *start)
       cur = cur->next = copy_token(t);
     cur = cur->next = make_token(")", tok, NULL);
 
-    if(it->interp_next && it->interp_next->kind != TK_EOF)
+    if(it->format_opt_next && it->format_opt_next->kind != TK_EOF)
       cur = cur->next = make_token(",", tok, NULL);
 
-    it = it->interp_next;
+    it = it->format_opt_next;
   }
   cur->next = tok;
   return head.next;
 }
 
-static Token *interp_literal_list_macro(Token *start)
+static Token *format_literal_list_macro(Token *start)
 {
   Token *tok = skip(start->next, "(");
 
@@ -2030,7 +2030,7 @@ static Token *interp_literal_list_macro(Token *start)
   tok = tok->next;
   tok = skip(tok, ")");
 
-  Token *it = itok->interp_str_next;
+  Token *it = itok->format_literal_next;
 
   pop_macro_lock_until(start, tok);
   
@@ -2052,9 +2052,9 @@ static Token *interp_literal_list_macro(Token *start)
 
     cur = cur->next = make_token(quoted, it, NULL);
 
-    if(it->interp_str_next && it->interp_str_next->kind != TK_EOF)
+    if(it->format_literal_next && it->format_literal_next->kind != TK_EOF)
       cur = cur->next = make_token(",", tok, NULL);
-    it = it->interp_str_next;
+    it = it->format_literal_next;
   }
   cur->next = tok;
   return head.next;
@@ -2112,10 +2112,10 @@ void init_macros(void) {
   add_builtin("__has_include_next", has_include_next_macro, true);
   add_builtin("__has_embed", has_embed_macro, true);
 
-  add_builtin("__INTERP_COUNT__", interp_count_macro, true);
-  add_builtin("__INTERP_LITERAL_COUNT__", interp_literal_count_macro, true);
-  add_builtin("__INTERP_LIST__", interp_list_macro, true);
-  add_builtin("__INTERP_LITERAL_LIST__", interp_literal_list_macro, true);
+  add_builtin("__FORMAT_SPECIFIER_COUNT__", format_specifier_count_macro, true);
+  add_builtin("__FORMAT_LITERAL_COUNT__", format_literal_count_macro, true);
+  add_builtin("__FORMAT_LIST__", format_list_macro, true);
+  add_builtin("__FORMAT_LITERAL_LIST__", format_literal_list_macro, true);
 }
 
 void dump_defines(FILE *out) {

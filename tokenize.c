@@ -515,8 +515,7 @@ static const char *string_literal_end(const char *p) {
   return p;
 }
 
-static Token *read_string_literal_given_end(const char *start, const char *quote, const char *end, Type *ty)
-{
+static Token *read_string_literal_given_end(const char *start, const char *quote, const char *end, Type *ty) {
   char *buf = calloc(1, end - quote);
   int len = 0;
   bool invalid = false;
@@ -579,15 +578,16 @@ static const char *fstring_find_specifier_begin(const char *p)
   for (; *p != '"'; p++) {
     if (*p == '\n' || *p == '\0')
       error_at(start, "unclosed string literal");
-    if(*p == '%' && p[1] == '%')
-    {
-      p += 2;
-      continue;
-    }
-    if(*p == '%')
-      return p;
+    uint32_t c = *p;
     if (*p == '\\')
-      p++;
+    {
+      bool invalid;
+      c = read_escape_seq(&p, p, &invalid);
+      if (invalid)
+        error_at(p, "invalid escape sequence");
+    }
+    if(c == '%')
+      return p;
   }
   return NULL;
 }
@@ -600,140 +600,181 @@ typedef struct {
   bool hash : 1;
 } FormatSpecOpts;
 
-static char *skip_format_specifier_options(const char *f)
+static uint32_t peek_string_walker(const char *f, const char **next)
 {
-  // flags
-  while (f && *f != '\"')
+  uint32_t c;
+  if (*f == '\\')
   {
-    switch (*f)
-    {
-      case '-':
-      case '+':
-      case ' ':
-      case '0':
-      case '#':
-        f++;
-        break;
-
-      default:
-        goto width;
-    }
+    bool invalid;
+    c = read_escape_seq(next, f, &invalid);
+    if (invalid)
+      error_at(f, "invalid escape sequence");
   }
-  
-  width:
-  if (isdigit(*f))
+  else
   {
-    char *end;
-    strtoull(f, &end, 10);
-    f = end;
+    c = (unsigned char)*f;
+    *next = f + 1;
   }
-  else if(*f == '*')
-  {
-    f++;
-  }
-  
-  // precision
-  if (*f == '.')
-  {
-    f++;
-    if (isdigit(*f))
-    {
-      char *end;
-      strtoull(f, &end, 10);
-      f = end;
-    }
-    else if(*f == '*')
-    {
-      f++;
-    }
-  }
-  
-  // length:
-  
-  {
-    if(memcmp(f, "hh", 2) == 0)
-      f++;
-    else if(memcmp(f, "h", 1) == 0 )
-      f++;
-    else if(memcmp(f, "ll", 2) == 0)
-      f++;
-    else if(memcmp(f, "l", 1) == 0 )
-      f++;
-    else if(memcmp(f, "L", 1) == 0 )
-      f++;
-    else if(memcmp(f, "z", 1) == 0 )
-      f++;
-  }
-  
-  return (char*) f;
+  return c;
 }
 
-static Token *read_interp_string_literal(const char *start, const char *quote, Type *ty)
+static uint32_t skip_integer_in_string_literal(const char **f, const char **next, uint32_t c)
 {
-  // find $, if ${}, then parse prev ptr with cur as a string literal, make sure to dup it and replace $$ with $
-  Token literals_start = {};
-  Token specs_start   = {};
-  Token interps_start = {};
-  Token *literals = &literals_start;
-  Token *specs   = &specs_start;
-  Token *interps = &interps_start;
+  while(Isdigit(c))
+  {
+    *f = *next;
+    c = peek_string_walker(*f, next);
+  }
+  return c;
+}
 
-  const char *it = quote + 2;
+static bool is_format_flag_char(uint32_t c) {
+  switch (c) {
+  case '-':
+  case '+':
+  case ' ':
+  case '0':
+  case '#': return true;
+  default:  return false;
+  }
+}
+
+static char *skip_format_specifier_options(const char *f) {
+  const char *next;
+  uint32_t c = peek_string_walker(f, &next);
+
+  // flags
+  while (c != '\"') {
+    if (is_format_flag_char(c)) {
+      f = next;
+      c = peek_string_walker(f, &next);
+    } else
+      break;
+  }
+
+  // width
+  if (Isdigit(c)) {
+    c = skip_integer_in_string_literal(&f, &next, c);
+  } else if (c == '*') {
+    f = next;
+    c = peek_string_walker(f, &next);
+  }
+
+  // precision
+  if (c == '.') {
+    f = next;
+    c = peek_string_walker(f, &next);
+    if (Isdigit(c)) {
+      c = skip_integer_in_string_literal(&f, &next, c);
+    } else if (c == '*') {
+      f = next;
+      c = peek_string_walker(f, &next);
+    }
+  }
+
+  // length:
+  switch (c) {
+  case 'L':
+  case 'j':
+  case 't':
+  case 'H':
+  case 'z': {
+    f = next;
+    c = peek_string_walker(f, &next);
+  } break;
+
+  case 'h': {
+    f = next;
+    c = peek_string_walker(f, &next);
+    if (c == 'h') {
+      f = next;
+      c = peek_string_walker(f, &next);
+    }
+  } break;
+
+  case 'l': {
+    f = next;
+    c = peek_string_walker(f, &next);
+    if (c == 'l') {
+      f = next;
+      c = peek_string_walker(f, &next);
+    }
+  } break;
+
+  case 'w': {
+    f = next;
+    c = peek_string_walker(f, &next);
+    if (c == 'f') {
+      f = next;
+      c = peek_string_walker(f, &next);
+    }
+
+    c = skip_integer_in_string_literal(&f, &next, c);
+  } break;
+
+  case 'D': {
+    f = next;
+    c = peek_string_walker(f, &next);
+    if (c == 'D') {
+      f = next;
+      c = peek_string_walker(f, &next);
+    }
+  } break;
+  }
+
+  return (char *)f;
+}
+
+static Token *read_format_string_literal(const char *start, Type *ty)
+{
+  // find %, if %{}, then parse prev ptr with cur as a string literal,
+  Token literals_start = {};
+  Token opts_start     = {};
+  Token interps_start  = {};
+  Token *literals = &literals_start;
+  Token *opts     = &opts_start;
+  Token *interps  = &interps_start;
+
+  const char *it = start + 2;
 
   while(true)
   {
     const char *specifier = fstring_find_specifier_begin(it);
 
-    if(specifier)
+    if (specifier)
     {
       assert(*specifier == '%');
+      
+      if (specifier[1] == '%')
+      {
+        literals = literals->format_literal_next = read_string_literal_given_end(it - 1, it - 1, specifier + 1, ty);
+        it += 1;
+        continue;
+      }
 
       literals = literals->format_literal_next = read_string_literal_given_end(it - 1, it - 1, specifier, ty);
-      literals->next = new_token(TK_EOF, literals->loc + literals->len, literals->loc + literals->len);
+      literals->format_literal_next = new_token(TK_EOF, literals->loc + literals->len, literals->loc + literals->len);
 
       it += literals->len - 2;
       assert(*it == '%');
-      
-      it = skip_format_specifier_options(it);
-      
-      Token *end = NULL;
 
-      if (it[1] == '{')
-      {
-        int braces_open = 1;
-        interps->format_spec_interp_next = tokenize_cb(new_file("<built-in>", it + 1), NULL, &end, stop_on_unbalanced_close_curly_brace, &braces_open);
-      }
+      char *after_opts = skip_format_specifier_options(it + 1);
 
-      assert(end);
-
-      it = end->loc + end->len;
-      Token *last = interps->format_spec_interp_next;
-
-      if(last == end)
-      {
-        interps->interp_next = interps->interp_next->next;
-      }
-      else
-      {
-        while(last->next != end)
-          last = last->next;
-        last->next = end->next;
-      }
-
-      interps = interps->interp_next;
-      assert(it[-1] == '}');
+      opts = opts->format_opt_next = read_string_literal_given_end(it, it, after_opts, ty_pchar);
+      it = after_opts;
     }
     else
     {
-      strings = strings->interp_str_next = read_string_literal(it - 1, it - 1, ty);
-      strings->next = new_token(TK_EOF, strings->loc + strings->len, strings->loc + strings->len);
+      literals = literals->format_literal_next = read_string_literal(it - 1, it - 1, ty);
+      literals->next = new_token(TK_EOF, literals->loc + literals->len, literals->loc + literals->len);
       break;
     }
   }
 
-  Token *tok = new_token(TK_FSTR, start, strings->loc + strings->len);
-  tok->interp_str_next = strings_start.interp_str_next;
-  tok->interp_next = interps_start.interp_next;
+  Token *tok = new_token(TK_FSTR, start, literals->loc + literals->len);
+  tok->format_literal_next = literals_start.next;
+  tok->format_opt_next = opts_start.format_opt_next;
+  tok->format_spec_interp_next= interps_start.format_spec_interp_next;
   return tok;
 }
 
@@ -1281,7 +1322,7 @@ Token *tokenize_cb(File *file, SlashDelta *delta, Token **end, bool(*cb)(Token*,
 
       // Interpolated string
       if(Startswith2(p, 'f', '\"')) {
-        accept_or_break(read_interp_string_literal(p, p, ty_pchar));
+        accept_or_break(read_format_string_literal(p, ty_pchar));
       }
 
       // UTF-8 string literal
