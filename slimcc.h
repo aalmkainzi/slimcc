@@ -297,6 +297,20 @@ struct File {
   bool is_placeholder;
 };
 
+typedef struct {
+  bool exists  : 1;
+  bool is_star : 1;
+  uint32_t n;
+} NumberOrStar;
+
+typedef struct {
+  char *flags;
+  NumberOrStar width;
+  NumberOrStar precision;
+  char *length_modifier;
+  char specifier;
+} FormatStringSpecifier;
+
 typedef struct Token Token;
 struct Token {
   Token *next;
@@ -318,9 +332,15 @@ struct Token {
   Type *ty; // Used if TK_INT_NUM or TK_STR
 
   Token *format_literal_next;
-  Token *format_opt_next;
-  Token *format_spec_interp_next;
 
+  struct {
+    Token *next;
+    FormatStringSpecifier data;
+  } format_spec;
+
+  Token *format_interp_next;
+
+  
   ANON_UNION_START
   Token *attr_next;
   Token *alloc_next;

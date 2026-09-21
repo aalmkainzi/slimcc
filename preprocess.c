@@ -1982,7 +1982,7 @@ static Token *format_literal_count_macro(Token *start)
   return new_num_token(counter, start, tok);
 }
 
-static Token *format_list_macro(Token *start)
+static Token *format_opt_list_macro(Token *start)
 {
   Token *tok = skip(start->next, "(");
 
@@ -2005,14 +2005,13 @@ static Token *format_list_macro(Token *start)
   Token *cur = &head;
   while(it && it->kind != TK_EOF)
   {
-    cur = cur->next = make_token("(", tok, NULL);
-    for(Token *t = it; t->kind != TK_EOF; t = t->next)
-      cur = cur->next = copy_token(t);
-    cur = cur->next = make_token(")", tok, NULL);
+    char *quoted = strndup(it->loc, it->len);
+    quoted[0] = quoted[it->len - 1] = '"';
+
+    cur = cur->next = make_token(quoted, it, NULL);
 
     if(it->format_opt_next && it->format_opt_next->kind != TK_EOF)
       cur = cur->next = make_token(",", tok, NULL);
-
     it = it->format_opt_next;
   }
   cur->next = tok;
@@ -2112,9 +2111,9 @@ void init_macros(void) {
   add_builtin("__has_include_next", has_include_next_macro, true);
   add_builtin("__has_embed", has_embed_macro, true);
 
-  add_builtin("__FORMAT_SPECIFIER_COUNT__", format_specifier_count_macro, true);
+  add_builtin("__FORMAT_OPT_COUNT__", format_specifier_count_macro, true);
   add_builtin("__FORMAT_LITERAL_COUNT__", format_literal_count_macro, true);
-  add_builtin("__FORMAT_LIST__", format_list_macro, true);
+  add_builtin("__FORMAT_OPT_LIST__", format_opt_list_macro, true);
   add_builtin("__FORMAT_LITERAL_LIST__", format_literal_list_macro, true);
 }
 

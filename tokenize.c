@@ -581,7 +581,7 @@ static const char *fstring_find_specifier_begin(const char *p)
     uint32_t c = *p;
     if (*p == '\\')
     {
-      bool invalid;
+      bool invalid = false;
       c = read_escape_seq(&p, p, &invalid);
       if (invalid)
         error_at(p, "invalid escape sequence");
@@ -605,10 +605,14 @@ static uint32_t peek_string_walker(const char *f, const char **next)
   uint32_t c;
   if (*f == '\\')
   {
-    bool invalid;
-    c = read_escape_seq(next, f, &invalid);
+    bool invalid = false;
+    c = read_escape_seq(next, f + 1, &invalid);
     if (invalid)
       error_at(f, "invalid escape sequence");
+  }
+  else if (*f == '\"')
+  {
+    error_at(f, "unexpected end of string");
   }
   else
   {
@@ -618,34 +622,43 @@ static uint32_t peek_string_walker(const char *f, const char **next)
   return c;
 }
 
-static uint32_t skip_integer_in_string_literal(const char **f, const char **next, uint32_t c)
+static uint32_t skip_integer_in_string_literal(const char **f, const char **next, uint32_t c, uint32_t *n)
 {
+  if (n)
+    *n = 0;
   while(Isdigit(c))
   {
+    if (n)
+      *n = (*n * 10) + c;
     *f = *next;
     c = peek_string_walker(*f, next);
   }
   return c;
 }
 
-static bool is_format_flag_char(uint32_t c) {
+static bool is_format_flag_char(uint32_t c, FormatFlags *flags) {
   switch (c) {
-  case '-':
-  case '+':
-  case ' ':
-  case '0':
-  case '#': return true;
+  case '-' : flags->minus = true; return true;
+  case '+' : flags->plus  = true; return true;
+  case ' ' : flags->space = true; return true;
+  case '0' : flags->zero  = true; return true;
+  case '#' : flags->hash  = true; return true;
+  case '\'': flags->quote = true; return true;
+  case 'I' : flags->hash  = true; return true;
   default:  return false;
   }
 }
 
-static char *skip_format_specifier_options(const char *f) {
+// starts after '%'
+static char *skip_formatting(const char *f, FormatFlags *flags,
+                                           NumberOrStar *width, NumberOrStar *precision,
+                                           char **length_modifier, char *specifier) {
   const char *next;
   uint32_t c = peek_string_walker(f, &next);
 
   // flags
   while (c != '\"') {
-    if (is_format_flag_char(c)) {
+    if (is_format_flag_char(c, flags)) {
       f = next;
       c = peek_string_walker(f, &next);
     } else
@@ -654,21 +667,31 @@ static char *skip_format_specifier_options(const char *f) {
 
   // width
   if (Isdigit(c)) {
-    c = skip_integer_in_string_literal(&f, &next, c);
+    width->exists = true;
+    width->is_star = false;
+    c = skip_integer_in_string_literal(&f, &next, c, &width->n);
   } else if (c == '*') {
+    width->exists = true;
+    width->is_star = true;
     f = next;
     c = peek_string_walker(f, &next);
   }
 
   // precision
   if (c == '.') {
+    precision->exists = true;
     f = next;
     c = peek_string_walker(f, &next);
     if (Isdigit(c)) {
-      c = skip_integer_in_string_literal(&f, &next, c);
+      precision->is_star = false;
+      c = skip_integer_in_string_literal(&f, &next, c, &precision->n);
     } else if (c == '*') {
+      precision->is_star = true;
       f = next;
       c = peek_string_walker(f, &next);
+    } else {
+      precision->is_star = false;
+      precision->n = 0;
     }
   }
 
@@ -678,7 +701,9 @@ static char *skip_format_specifier_options(const char *f) {
   case 'j':
   case 't':
   case 'H':
-  case 'z': {
+  case 'z':
+  case 'q': {
+    *length_modifier = strdup((char[]){(char)c, '\0'});
     f = next;
     c = peek_string_walker(f, &next);
   } break;
@@ -687,8 +712,11 @@ static char *skip_format_specifier_options(const char *f) {
     f = next;
     c = peek_string_walker(f, &next);
     if (c == 'h') {
+      *length_modifier = strdup("hh");
       f = next;
       c = peek_string_walker(f, &next);
+    } else {
+      *length_modifier = strdup("h");
     }
   } break;
 
@@ -696,32 +724,53 @@ static char *skip_format_specifier_options(const char *f) {
     f = next;
     c = peek_string_walker(f, &next);
     if (c == 'l') {
+      *length_modifier = strdup("ll");
       f = next;
       c = peek_string_walker(f, &next);
+    } else {
+      *length_modifier = strdup("l");
     }
   } break;
 
   case 'w': {
+    bool fast_t = false;
     f = next;
     c = peek_string_walker(f, &next);
     if (c == 'f') {
+      fast_t = true;
       f = next;
       c = peek_string_walker(f, &next);
     }
 
-    c = skip_integer_in_string_literal(&f, &next, c);
+    uint32_t w_width;
+    if (!Isdigit(c))
+      error_at(f, "invalid format length modifier");
+    c = skip_integer_in_string_literal(&f, &next, c, &w_width);
+    *length_modifier = calloc(1, 16);
+    if (fast_t)
+      sprintf(*length_modifier, "wf%d", w_width);
+    else
+      sprintf(*length_modifier, "w%d", w_width);
   } break;
 
   case 'D': {
     f = next;
     c = peek_string_walker(f, &next);
     if (c == 'D') {
+      *length_modifier = strdup("DD");
       f = next;
       c = peek_string_walker(f, &next);
+    } else {
+      *length_modifier = strdup("D");
     }
   } break;
+
+  default: *length_modifier = strdup("");
   }
 
+  if (c)
+  *specifier = c;
+  f = next;
   return (char *)f;
 }
 
@@ -744,16 +793,16 @@ static Token *read_format_string_literal(const char *start, Type *ty)
     if (specifier)
     {
       assert(*specifier == '%');
-      
+
       if (specifier[1] == '%')
       {
         literals = literals->format_literal_next = read_string_literal_given_end(it - 1, it - 1, specifier + 1, ty);
-        it += 1;
+        it = specifier + 2;
         continue;
       }
 
       literals = literals->format_literal_next = read_string_literal_given_end(it - 1, it - 1, specifier, ty);
-      literals->format_literal_next = new_token(TK_EOF, literals->loc + literals->len, literals->loc + literals->len);
+      literals->next = new_token(TK_EOF, literals->loc + literals->len, literals->loc + literals->len);
 
       it += literals->len - 2;
       assert(*it == '%');
@@ -761,6 +810,7 @@ static Token *read_format_string_literal(const char *start, Type *ty)
       char *after_opts = skip_format_specifier_options(it + 1);
 
       opts = opts->format_opt_next = read_string_literal_given_end(it, it, after_opts, ty_pchar);
+      opts->next = new_token(TK_EOF, literals->loc + literals->len, literals->loc + literals->len);
       it = after_opts;
     }
     else
@@ -772,7 +822,7 @@ static Token *read_format_string_literal(const char *start, Type *ty)
   }
 
   Token *tok = new_token(TK_FSTR, start, literals->loc + literals->len);
-  tok->format_literal_next = literals_start.next;
+  tok->format_literal_next = literals_start.format_literal_next;
   tok->format_opt_next = opts_start.format_opt_next;
   tok->format_spec_interp_next= interps_start.format_spec_interp_next;
   return tok;
