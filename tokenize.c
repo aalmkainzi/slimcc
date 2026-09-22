@@ -848,6 +848,10 @@ static Token *read_format_string_literal(const char *start, Type *ty)
 
       if (specifier[1] == '%')
       {
+        // TODO this makes it so: f"hello %% world" -> "hello %", " world"
+        // not what we want
+        // issue is we're reading the string literal from the source and split it like that...
+        // each literal should be its own allocation so i can modify it.
         literals = literals->format_literal_next = read_string_literal_given_end(it - 1, it - 1, specifier + 1, ty);
         it = specifier + 2;
         continue;
