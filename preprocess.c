@@ -1938,27 +1938,27 @@ static Token *has_extension_macro(Token *start) {
   return new_bool_int_token(has_it, start, tok);
 }
 
-static Token *format_specifier_count_macro(Token *start)
-{
-  Token *tok = skip(start->next, "(");
-
-  if(tok->kind != TK_FSTR)
-    error_tok(start, "not an interpolated string");
-
-  int counter = 0;
-  Token *interp = tok->format_opt_next;
-
-  while(interp)
-  {
-    counter += 1;
-    interp = interp->format_opt_next;
-  }
-
-  tok = skip(tok->next, ")");
-
-  pop_macro_lock_until(start, tok);
-  return new_num_token(counter, start, tok);
-}
+// static Token *format_specifier_count_macro(Token *start)
+// {
+//   Token *tok = skip(start->next, "(");
+// 
+//   if(tok->kind != TK_FSTR)
+//     error_tok(start, "not an interpolated string");
+// 
+//   int counter = 0;
+//   Token *interp = tok->format_opt_next;
+// 
+//   while(interp)
+//   {
+//     counter += 1;
+//     interp = interp->format_opt_next;
+//   }
+// 
+//   tok = skip(tok->next, ")");
+// 
+//   pop_macro_lock_until(start, tok);
+//   return new_num_token(counter, start, tok);
+// }
 
 static Token *format_literal_count_macro(Token *start)
 {
@@ -1982,43 +1982,67 @@ static Token *format_literal_count_macro(Token *start)
   return new_num_token(counter, start, tok);
 }
 
-static Token *format_opt_list_macro(Token *start)
+static Token *format_spec_any_macro(Token *start, int index)
 {
   Token *tok = skip(start->next, "(");
-
+  
   Token *itok = tok;
-
+  
   if(itok->kind != TK_FSTR && itok->kind != TK_STR)
     error_tok(start, "expected a string");
-
+  
   tok = tok->next;
   tok = skip(tok, ")");
-
-  Token *it = itok->format_opt_next;
-
+  
+  Token *it = itok->format_spec.next;
+  
   pop_macro_lock_until(start, tok);
-
+  
   if(it == NULL || it->kind == TK_EOF)
     return tok;
-
+  
   Token head = {0};
   Token *cur = &head;
   while(it && it->kind != TK_EOF)
   {
-    char *quoted = strndup(it->loc, it->len);
-    quoted[0] = quoted[it->len - 1] = '"';
-
-    cur = cur->next = make_token(quoted, it, NULL);
-
-    if(it->format_opt_next && it->format_opt_next->kind != TK_EOF)
+    char *spec_part = it->format_spec.data.spec_parts[index];
+    
+    cur = cur->next = make_token(spec_part, it, NULL);
+    
+    if(it->format_spec.next && it->format_spec.next->kind != TK_EOF)
       cur = cur->next = make_token(",", tok, NULL);
-    it = it->format_opt_next;
+    it = it->format_spec.next;
   }
   cur->next = tok;
   return head.next;
 }
 
-static Token *format_literal_list_macro(Token *start)
+static Token *format_flags_macro(Token *start)
+{
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, flags) / sizeof(char*));
+}
+
+static Token *format_widths_macro(Token *start)
+{
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, width) / sizeof(char*));
+}
+
+static Token *format_precisions_macro(Token *start)
+{
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, precision) / sizeof(char*));
+}
+
+static Token *format_length_modifiers_macro(Token *start)
+{
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, length_modifier) / sizeof(char*));
+}
+
+static Token *format_conversions_macro(Token *start)
+{
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, conversion) / sizeof(char*));
+}
+
+static Token *format_literals_macro(Token *start)
 {
   Token *tok = skip(start->next, "(");
 
@@ -2054,6 +2078,67 @@ static Token *format_literal_list_macro(Token *start)
     if(it->format_literal_next && it->format_literal_next->kind != TK_EOF)
       cur = cur->next = make_token(",", tok, NULL);
     it = it->format_literal_next;
+  }
+  cur->next = tok;
+  return head.next;
+}
+
+static Token *format_get_next_interp_token(Token *cur)
+{
+  while (cur && cur->kind != TK_EOF)
+  {
+    if (cur->format_spec.data.is_interp)
+      return cur;
+    cur = cur->format_spec.next;
+  }
+}
+
+static Token *format_interps_macro(Token *start)
+{
+  Token *tok = skip(start->next, "(");
+  
+  Token *itok = tok;
+  if(itok->kind != TK_FSTR && itok->kind != TK_STR)
+    error_tok(start, "expected a string");
+  
+  tok = tok->next;
+  tok = skip(tok, ")");
+  
+  Token *it = itok->format_spec.next;
+  
+  pop_macro_lock_until(start, tok);
+  
+  if(itok->kind == TK_STR)
+  {
+    Token *cur = copy_token(itok);
+    cur->next = tok;
+    return cur;
+  }
+  else if(it == NULL || it->kind == TK_EOF)
+    return tok;
+
+  it = format_get_next_interp_token(it);
+
+  Token head = {0};
+  Token *cur = &head;
+  Token *next = it ? format_get_next_interp_token(it->format_spec.next) : NULL;
+  while(it && it->kind != TK_EOF)
+  {
+    cur = cur->next = make_token("(", tok, NULL);
+    for(Token *t = it->format_spec.data.interp; t->kind != TK_EOF; t = t->next)
+      cur = cur->next = copy_token(t);
+    cur = cur->next = make_token(")", tok, NULL);
+
+    if(next && next->kind != TK_EOF)
+    {
+      cur = cur->next = make_token(",", tok, NULL);
+      it = next;
+      next = format_get_next_interp_token(it->format_spec.next);
+    }
+    else
+    {
+      it = next;
+    }
   }
   cur->next = tok;
   return head.next;
@@ -2111,10 +2196,13 @@ void init_macros(void) {
   add_builtin("__has_include_next", has_include_next_macro, true);
   add_builtin("__has_embed", has_embed_macro, true);
 
-  add_builtin("__FORMAT_OPT_COUNT__", format_specifier_count_macro, true);
-  add_builtin("__FORMAT_LITERAL_COUNT__", format_literal_count_macro, true);
-  add_builtin("__FORMAT_OPT_LIST__", format_opt_list_macro, true);
-  add_builtin("__FORMAT_LITERAL_LIST__", format_literal_list_macro, true);
+  add_builtin("__FORMAT_LITERALS__", format_literals_macro, true);
+  add_builtin("__FORMAT_FLAGS__", format_flags_macro, true);
+  add_builtin("__FORMAT_WIDTHS__", format_widths_macro, true);
+  add_builtin("__FORMAT_PRECISIONS__", format_precisions_macro, true);
+  add_builtin("__FORMAT_LENGTH_MODIFIERS__", format_length_modifiers_macro, true);
+  add_builtin("__FORMAT_CONVERSIONS__", format_conversions_macro, true);
+  add_builtin("__FORMAT_INTERPS__", format_interps_macro, true);
 }
 
 void dump_defines(FILE *out) {

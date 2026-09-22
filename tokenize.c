@@ -1,5 +1,6 @@
 #include "slimcc.h"
 #include <ctype.h>
+#include <string.h>
 
 typedef struct {
   int pos;
@@ -156,9 +157,9 @@ static Token *new_token(TokenKind kind, const char *start, const char *end) {
   tok->loc = start;
   tok->len = end - start;
   tok->file = current_file;
-
   tok->at_bol = at_bol;
   tok->has_space = has_space;
+
   at_bol = has_space = false;
 
   tok->alloc_next = last_alloc_tok;
@@ -549,21 +550,28 @@ static Token *read_string_literal(const char *start, const char *quote, Type *ty
   return read_string_literal_given_end(start, quote, string_literal_end(quote + 1), ty);
 }
 
-static bool stop_on_unbalanced_close_curly_brace(Token *tok, void *arg)
+typedef struct
 {
-  int *braces_open = arg;
+  const char *end;
+  int open;
+} CurlyState;
+
+static bool stop_on_unbalanced_close_curly(Token *tok, void *arg)
+{
+  CurlyState *state = arg;
 
   if(equal(tok, "{"))
   {
-    *braces_open += 1;
+    state->open += 1;
   }
   else if(equal(tok, "}"))
   {
-    *braces_open -= 1;
+    state->open -= 1;
   }
 
-  if(*braces_open == 0)
+  if(state->open == 0)
   {
+    state->end = tok->loc;
     return false;
   }
   else
@@ -592,15 +600,7 @@ static const char *fstring_find_specifier_begin(const char *p)
   return NULL;
 }
 
-typedef struct {
-  bool force_sign : 1;
-  bool left_justify : 1;
-  bool space : 1;
-  bool pad_0 : 1;
-  bool hash : 1;
-} FormatSpecOpts;
-
-static uint32_t peek_string_walker(const char *f, const char **next)
+static uint32_t peek_format_string(const char *f, const char **next)
 {
   uint32_t c;
   if (*f == '\\')
@@ -612,7 +612,7 @@ static uint32_t peek_string_walker(const char *f, const char **next)
   }
   else if (*f == '\"')
   {
-    error_at(f, "unexpected end of string");
+    error_at(f, "unexpected end of format string");
   }
   else
   {
@@ -624,75 +624,103 @@ static uint32_t peek_string_walker(const char *f, const char **next)
 
 static uint32_t skip_integer_in_string_literal(const char **f, const char **next, uint32_t c, uint32_t *n)
 {
-  if (n)
-    *n = 0;
+  *n = 0;
   while(Isdigit(c))
   {
-    if (n)
-      *n = (*n * 10) + c;
+    *n = (*n * 10) + (c - '0');
     *f = *next;
-    c = peek_string_walker(*f, next);
+    c = peek_format_string(*f, next);
   }
   return c;
 }
 
-static bool is_format_flag_char(uint32_t c, FormatFlags *flags) {
+static bool is_format_flag_char(uint32_t c) {
   switch (c) {
-  case '-' : flags->minus = true; return true;
-  case '+' : flags->plus  = true; return true;
-  case ' ' : flags->space = true; return true;
-  case '0' : flags->zero  = true; return true;
-  case '#' : flags->hash  = true; return true;
-  case '\'': flags->quote = true; return true;
-  case 'I' : flags->hash  = true; return true;
-  default:  return false;
+  case '-' :
+  case '+' :
+  case ' ' :
+  case '0' :
+  case '#' :
+  case '\'':
+  case 'I' :
+    return true;
+  default:
+    return false;
   }
 }
 
 // starts after '%'
-static char *skip_formatting(const char *f, FormatFlags *flags,
-                                           NumberOrStar *width, NumberOrStar *precision,
-                                           char **length_modifier, char *specifier) {
+static char *skip_formatting(const char *f, FormatStringSpecifier *spec) {
   const char *next;
-  uint32_t c = peek_string_walker(f, &next);
+  uint32_t c = peek_format_string(f, &next);
+
+  size_t flags_cap = 32;
+  size_t flags_len = 1;
+  spec->flags = calloc(flags_cap, 1);
+  spec->flags[0] = '"';
+
+  bool flag_map[128] = {};
 
   // flags
   while (c != '\"') {
-    if (is_format_flag_char(c, flags)) {
+    if (is_format_flag_char(c)) {
+      if(!flag_map[(char)c]) {
+        flag_map[(char)c] = true;
+
+        if (flags_len >= flags_cap)
+        {
+          flags_cap *= 2;
+          spec->flags = realloc(spec->flags, flags_cap);
+        }
+        spec->flags[flags_len] = c;
+        flags_len += 1;
+      }
       f = next;
-      c = peek_string_walker(f, &next);
-    } else
+      c = peek_format_string(f, &next);
+    } else {
       break;
+    }
   }
+  if (flags_len >= flags_cap)
+  {
+    flags_cap += 4;
+    spec->flags = realloc(spec->flags, flags_cap);
+  }
+  spec->flags[flags_len++] = '\"';
+  spec->flags[flags_len] = '\0';
 
   // width
   if (Isdigit(c)) {
-    width->exists = true;
-    width->is_star = false;
-    c = skip_integer_in_string_literal(&f, &next, c, &width->n);
+    uint32_t n;
+    c = skip_integer_in_string_literal(&f, &next, c, &n);
+    spec->width = calloc(12, 1);
+    sprintf(spec->width, "\"%d\"", n);
   } else if (c == '*') {
-    width->exists = true;
-    width->is_star = true;
+    spec->width = strdup("\"*\"");
     f = next;
-    c = peek_string_walker(f, &next);
+    c = peek_format_string(f, &next);
+  } else {
+    spec->width = strdup("\"\"");
   }
 
   // precision
   if (c == '.') {
-    precision->exists = true;
     f = next;
-    c = peek_string_walker(f, &next);
+    c = peek_format_string(f, &next);
     if (Isdigit(c)) {
-      precision->is_star = false;
-      c = skip_integer_in_string_literal(&f, &next, c, &precision->n);
+      uint32_t n;
+      c = skip_integer_in_string_literal(&f, &next, c, &n);
+      spec->precision = calloc(14, 1);
+      sprintf(spec->precision, "\"%d\"", n);
     } else if (c == '*') {
-      precision->is_star = true;
+      spec->precision = strdup("\"*\"");
       f = next;
-      c = peek_string_walker(f, &next);
+      c = peek_format_string(f, &next);
     } else {
-      precision->is_star = false;
-      precision->n = 0;
+      spec->precision = strdup("\"0\"");
     }
+  } else {
+    spec->precision = strdup("\"\"");
   }
 
   // length:
@@ -703,88 +731,112 @@ static char *skip_formatting(const char *f, FormatFlags *flags,
   case 'H':
   case 'z':
   case 'q': {
-    *length_modifier = strdup((char[]){(char)c, '\0'});
+    spec->length_modifier = strdup((char[]){'\"', (char)c, '\"', '\0'});
     f = next;
-    c = peek_string_walker(f, &next);
+    c = peek_format_string(f, &next);
   } break;
 
   case 'h': {
     f = next;
-    c = peek_string_walker(f, &next);
+    c = peek_format_string(f, &next);
     if (c == 'h') {
-      *length_modifier = strdup("hh");
+      spec->length_modifier = strdup("\"hh\"");
       f = next;
-      c = peek_string_walker(f, &next);
+      c = peek_format_string(f, &next);
     } else {
-      *length_modifier = strdup("h");
+      spec->length_modifier = strdup("\"h\"");
     }
   } break;
 
   case 'l': {
     f = next;
-    c = peek_string_walker(f, &next);
+    c = peek_format_string(f, &next);
     if (c == 'l') {
-      *length_modifier = strdup("ll");
+      spec->length_modifier = strdup("\"ll\"");
       f = next;
-      c = peek_string_walker(f, &next);
+      c = peek_format_string(f, &next);
     } else {
-      *length_modifier = strdup("l");
+      spec->length_modifier = strdup("\"l\"");
     }
   } break;
 
   case 'w': {
     bool fast_t = false;
     f = next;
-    c = peek_string_walker(f, &next);
+    c = peek_format_string(f, &next);
     if (c == 'f') {
       fast_t = true;
       f = next;
-      c = peek_string_walker(f, &next);
+      c = peek_format_string(f, &next);
     }
 
     uint32_t w_width;
     if (!Isdigit(c))
       error_at(f, "invalid format length modifier");
     c = skip_integer_in_string_literal(&f, &next, c, &w_width);
-    *length_modifier = calloc(1, 16);
+    spec->length_modifier = calloc(1, 16);
     if (fast_t)
-      sprintf(*length_modifier, "wf%d", w_width);
+      sprintf(spec->length_modifier, "\"wf%d\"", w_width);
     else
-      sprintf(*length_modifier, "w%d", w_width);
+      sprintf(spec->length_modifier, "\"w%d\"", w_width);
   } break;
 
   case 'D': {
     f = next;
-    c = peek_string_walker(f, &next);
+    c = peek_format_string(f, &next);
     if (c == 'D') {
-      *length_modifier = strdup("DD");
+      spec->length_modifier = strdup("\"DD\"");
       f = next;
-      c = peek_string_walker(f, &next);
+      c = peek_format_string(f, &next);
     } else {
-      *length_modifier = strdup("D");
+      spec->length_modifier = strdup("\"D\"");
     }
   } break;
 
-  default: *length_modifier = strdup("");
+  case '{': {
+    if (*f != '{') // must be a literal {, not hex or octal code
+    {
+      break;
+    }
+    spec->is_interp = true;
+    spec->length_modifier = strdup("\"{}\"");
+
+    f = next;
+
+    CurlyState state = {.open = 1};
+    Token *end;
+    spec->interp = tokenize_cb(new_file("<built-in>", f), NULL, &end, stop_on_unbalanced_close_curly, &state);
+    f = state.end + 1;
+    c = peek_format_string(f, &next);
+  } break;
+
+  default: spec->length_modifier = strdup("\"\"");
   }
 
-  if (c)
-  *specifier = c;
+  spec->conversion = calloc(4, 1);
+  sprintf(spec->conversion, "\"%c\"", (char)c);
+
   f = next;
   return (char *)f;
 }
 
 static Token *read_format_string_literal(const char *start, Type *ty)
 {
-  // find %, if %{}, then parse prev ptr with cur as a string literal,
+  // formats with an interp length modifier don't consume an argument (other than optional * for width or precision)
+  // the '?' coversion means use the type's default conversion:
+  // integral types -> d
+  // floating types -> f
+  // the rest is obvious
+
   Token literals_start = {};
-  Token opts_start     = {};
-  Token interps_start  = {};
+  Token specs_start    = {};
   Token *literals = &literals_start;
-  Token *opts     = &opts_start;
-  Token *interps  = &interps_start;
+  Token *specs    = &specs_start;
 
   const char *it = start + 2;
+
+  bool save_at_bol = at_bol;
+  bool save_has_space = has_space;
 
   while(true)
   {
@@ -807,10 +859,13 @@ static Token *read_format_string_literal(const char *start, Type *ty)
       it += literals->len - 2;
       assert(*it == '%');
 
-      char *after_opts = skip_format_specifier_options(it + 1);
+      FormatStringSpecifier format_data = {};
+      char *after_opts = skip_formatting(it + 1, &format_data);
 
-      opts = opts->format_opt_next = read_string_literal_given_end(it, it, after_opts, ty_pchar);
-      opts->next = new_token(TK_EOF, literals->loc + literals->len, literals->loc + literals->len);
+      specs = specs->format_spec.next = read_string_literal_given_end(it, it, after_opts, ty_pchar);
+      specs->format_spec.data = format_data;
+      
+      specs->next = new_token(TK_EOF, literals->loc + literals->len, literals->loc + literals->len);
       it = after_opts;
     }
     else
@@ -820,11 +875,12 @@ static Token *read_format_string_literal(const char *start, Type *ty)
       break;
     }
   }
+  at_bol = save_at_bol;
+  has_space = save_has_space;
 
   Token *tok = new_token(TK_FSTR, start, literals->loc + literals->len);
   tok->format_literal_next = literals_start.format_literal_next;
-  tok->format_opt_next = opts_start.format_opt_next;
-  tok->format_spec_interp_next= interps_start.format_spec_interp_next;
+  tok->format_spec.next = specs_start.format_spec.next;
   return tok;
 }
 
@@ -1281,12 +1337,12 @@ Token *tokenize(File *file, SlashDelta *delta, Token **end) {
 #define accept_or_break(t) \
 do { \
   Token *tok_to_check = t; \
-  cur = cur->next = tok_to_check; \
-  p += cur->len; \
   if(!cb(tok_to_check, arg)) \
   { \
     goto break_loop; \
   } \
+  cur = cur->next = tok_to_check; \
+  p += cur->len; \
   goto continue_loop; \
 } while(0)
 

@@ -304,11 +304,18 @@ typedef struct {
 } NumberOrStar;
 
 typedef struct {
-  char *flags;
-  NumberOrStar width;
-  NumberOrStar precision;
-  char *length_modifier;
-  char specifier;
+  union {
+    struct {
+      char *flags;
+      char *width;
+      char *precision;
+      char *length_modifier;
+      char *conversion;
+    };
+    char *spec_parts[5];
+  };
+  bool is_interp;
+  struct Token *interp;
 } FormatStringSpecifier;
 
 typedef struct Token Token;
@@ -338,9 +345,6 @@ struct Token {
     FormatStringSpecifier data;
   } format_spec;
 
-  Token *format_interp_next;
-
-  
   ANON_UNION_START
   Token *attr_next;
   Token *alloc_next;
