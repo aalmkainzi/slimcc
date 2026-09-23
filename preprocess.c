@@ -1938,50 +1938,6 @@ static Token *has_extension_macro(Token *start) {
   return new_bool_int_token(has_it, start, tok);
 }
 
-// static Token *format_specifier_count_macro(Token *start)
-// {
-//   Token *tok = skip(start->next, "(");
-// 
-//   if(tok->kind != TK_FSTR)
-//     error_tok(start, "not an interpolated string");
-// 
-//   int counter = 0;
-//   Token *interp = tok->format_opt_next;
-// 
-//   while(interp)
-//   {
-//     counter += 1;
-//     interp = interp->format_opt_next;
-//   }
-// 
-//   tok = skip(tok->next, ")");
-// 
-//   pop_macro_lock_until(start, tok);
-//   return new_num_token(counter, start, tok);
-// }
-
-static Token *format_literal_count_macro(Token *start)
-{
-  Token *tok = skip(start->next, "(");
-
-  if(tok->kind != TK_FSTR)
-    error_tok(start, "not an interpolated string");
-
-  int counter = 0;
-  Token *lit = tok->format_literal_next;
-
-  while(lit)
-  {
-    counter += 1;
-    lit = lit->format_literal_next;
-  }
-
-  tok = skip(tok->next, ")");
-
-  pop_macro_lock_until(start, tok);
-  return new_num_token(counter, start, tok);
-}
-
 static Token *format_spec_any_macro(Token *start, int index)
 {
   Token *tok = skip(start->next, "(");
