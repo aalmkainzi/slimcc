@@ -5,15 +5,19 @@ typedef struct {
   Token *expanded;
 } MacroArg;
 
-typedef Token *macro_handler_fn(Token *);
-
 typedef struct Macro Macro;
+typedef struct MacroContext MacroContext;
+
+typedef Token *macro_handler_fn(Token *);
+typedef Token *funclike_macro_handler_fn(Token *, MacroContext *);
+
 struct Macro {
   Token *stop_tok;
   Macro *locked_next;
   Token *params;
   Token *body;
   macro_handler_fn *handler;
+  funclike_macro_handler_fn *funclike_handler;
   int arg_cnt;
   bool is_objlike;
   bool is_locked;
@@ -21,11 +25,11 @@ struct Macro {
   bool align;
 };
 
-typedef struct {
+struct MacroContext{
   Macro *m;
   MacroArg *args;
   bool omit_comma;
-} MacroContext;
+};
 
 typedef struct MacroDef MacroDef;
 struct MacroDef {
@@ -730,6 +734,11 @@ static Token *paste(Token *lhs, Token *rhs) {
 static Token *subst(Token *tok, MacroContext *ctx) {
   Token head = {0};
   Token *cur = &head;
+
+  if (ctx->m->funclike_handler)
+  {
+    return ctx->m->funclike_handler(tok, ctx);
+  }
 
   while (tok->kind != TK_EOF) {
     Token *start = tok;
@@ -1714,6 +1723,12 @@ static void add_builtin(const char *name, macro_handler_fn *fn, bool align) {
   m->align = align;
 }
 
+static void add_funclike_builtin(char *name, Token *tok, funclike_macro_handler_fn *fn, bool align) {
+  Macro *m = new_funclike_macro(name, &(Token*){}, tok);
+  m->funclike_handler = fn;
+  m->align = align;
+}
+
 static Token *file_macro(Token *start) {
   Token *tok = start;
   if (tok->origin)
@@ -1938,7 +1953,8 @@ static Token *has_extension_macro(Token *start) {
   return new_bool_int_token(has_it, start, tok);
 }
 
-static Token *format_spec_any_macro(Token *start, int index)
+// TODO debug break here to find out what start is (probably the first token in the expansion, but verify)
+static Token *format_spec_any_macro(Token *start, int index, MacroContext *ctx)
 {
   Token *tok = skip(start->next, "(");
   
@@ -1973,32 +1989,32 @@ static Token *format_spec_any_macro(Token *start, int index)
   return head.next;
 }
 
-static Token *format_flags_macro(Token *start)
+static Token *format_flags_macro(Token *start, MacroContext *ctx)
 {
-  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, flags) / sizeof(char*));
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, flags) / sizeof(char*), ctx);
 }
 
-static Token *format_widths_macro(Token *start)
+static Token *format_widths_macro(Token *start, MacroContext *ctx)
 {
-  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, width) / sizeof(char*));
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, width) / sizeof(char*), ctx);
 }
 
-static Token *format_precisions_macro(Token *start)
+static Token *format_precisions_macro(Token *start, MacroContext *ctx)
 {
-  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, precision) / sizeof(char*));
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, precision) / sizeof(char*), ctx);
 }
 
-static Token *format_length_modifiers_macro(Token *start)
+static Token *format_length_modifiers_macro(Token *start, MacroContext *ctx)
 {
-  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, length_modifier) / sizeof(char*));
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, length_modifier) / sizeof(char*), ctx);
 }
 
-static Token *format_conversions_macro(Token *start)
+static Token *format_conversions_macro(Token *start, MacroContext *ctx)
 {
-  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, conversion) / sizeof(char*));
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, conversion) / sizeof(char*), ctx);
 }
 
-static Token *format_literals_macro(Token *start)
+static Token *format_literals_macro(Token *start, MacroContext *ctx)
 {
   Token *tok = skip(start->next, "(");
 
@@ -2047,9 +2063,10 @@ static Token *format_get_next_interp_token(Token *cur)
       return cur;
     cur = cur->format_spec.next;
   }
+  return cur;
 }
 
-static Token *format_interps_macro(Token *start)
+static Token *format_interps_macro(Token *start, Macro *m)
 {
   Token *tok = skip(start->next, "(");
   
@@ -2152,13 +2169,13 @@ void init_macros(void) {
   add_builtin("__has_include_next", has_include_next_macro, true);
   add_builtin("__has_embed", has_embed_macro, true);
 
-  add_builtin("__FORMAT_LITERALS__", format_literals_macro, true);
-  add_builtin("__FORMAT_FLAGS__", format_flags_macro, true);
-  add_builtin("__FORMAT_WIDTHS__", format_widths_macro, true);
-  add_builtin("__FORMAT_PRECISIONS__", format_precisions_macro, true);
-  add_builtin("__FORMAT_LENGTH_MODIFIERS__", format_length_modifiers_macro, true);
-  add_builtin("__FORMAT_CONVERSIONS__", format_conversions_macro, true);
-  add_builtin("__FORMAT_INTERPS__", format_interps_macro, true);
+  add_funclike_builtin("__FORMAT_LITERALS__", tokenize(new_file("<built-in>", "(str)"), NULL, NULL), format_literals_macro, true);
+  add_funclike_builtin("__FORMAT_FLAGS__", tokenize(new_file("<built-in>", "(str)"), NULL, NULL), format_flags_macro, true);
+  add_funclike_builtin("__FORMAT_WIDTHS__", tokenize(new_file("<built-in>", "(str)"), NULL, NULL), format_widths_macro, true);
+  add_funclike_builtin("__FORMAT_PRECISIONS__", tokenize(new_file("<built-in>", "(str)"), NULL, NULL), format_precisions_macro, true);
+  add_funclike_builtin("__FORMAT_LENGTH_MODIFIERS__", tokenize(new_file("<built-in>", "(str)"), NULL, NULL), format_length_modifiers_macro, true);
+  add_funclike_builtin("__FORMAT_CONVERSIONS__", tokenize(new_file("<built-in>", "(str)"), NULL, NULL), format_conversions_macro, true);
+  add_funclike_builtin("__FORMAT_INTERPS__", tokenize(new_file("<built-in>", "(str)"), NULL, NULL), format_interps_macro, true);
 }
 
 void dump_defines(FILE *out) {
