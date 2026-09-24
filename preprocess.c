@@ -650,6 +650,7 @@ static char *join_tokens(Token *tok, Token *end, bool add_slash) {
 
     if (add_slash && (t->kind == TK_INT_NUM ||
                       t->kind == TK_STR ||
+                      t->kind == TK_FSTR ||
                       t->kind == TK_ASM_STR ||
                       t->kind == TK_INVALID))
       for (int i = 0; i < t->len; i++)
@@ -669,6 +670,7 @@ static char *join_tokens(Token *tok, Token *end, bool add_slash) {
 
     if (add_slash && (t->kind == TK_INT_NUM ||
                       t->kind == TK_STR ||
+                      t->kind == TK_FSTR ||
                       t->kind == TK_ASM_STR ||
                       t->kind == TK_INVALID)) {
       for (int i = 0; i < t->len; i++) {
@@ -1133,7 +1135,7 @@ static bool expand_macro(Token **rest, Token *tok, bool is_root) {
   if (!m->is_objlike && !equal(tok->next, "("))
     return false;
 
-  if (!m->is_objlike && m->body->kind == TK_EOF && equal(tok, "__attribute__")) {
+  if (!m->is_objlike && !m->funclike_handler && m->body->kind == TK_EOF && equal(tok, "__attribute__")) {
     const char *slash = strrchr(m->body->file->name, '/');
     if (slash && !strcmp(slash + 1, "cdefs.h")) {
       push_macro_lock(m, prepare_funclike_args(tok->next));
@@ -1953,25 +1955,21 @@ static Token *has_extension_macro(Token *start) {
   return new_bool_int_token(has_it, start, tok);
 }
 
-// TODO debug break here to find out what start is (probably the first token in the expansion, but verify)
-static Token *format_spec_any_macro(Token *start, int index, MacroContext *ctx)
+static Token *format_spec_any_macro(Token *body, int index, MacroContext *ctx)
 {
-  Token *tok = skip(start->next, "(");
-  
-  Token *itok = tok;
-  
-  if(itok->kind != TK_FSTR && itok->kind != TK_STR)
-    error_tok(start, "expected a string");
-  
-  tok = tok->next;
-  tok = skip(tok, ")");
-  
-  Token *it = itok->format_spec.next;
-  
-  pop_macro_lock_until(start, tok);
-  
+  assert(body == NULL);
+
+  Token *rest;
+  MacroArg *marg = find_arg(&rest, make_token("str", ctx->m->params, NULL), ctx);
+  Token *arg = expand_arg(marg);
+
+  if(arg->kind != TK_FSTR && arg->kind != TK_STR)
+    error_tok(arg, "expected a string");
+
+  Token *it = arg->format_spec.next;
+
   if(it == NULL || it->kind == TK_EOF)
-    return tok;
+    return new_eof(arg);
   
   Token head = {0};
   Token *cur = &head;
@@ -1982,10 +1980,10 @@ static Token *format_spec_any_macro(Token *start, int index, MacroContext *ctx)
     cur = cur->next = make_token(spec_part, it, NULL);
     
     if(it->format_spec.next && it->format_spec.next->kind != TK_EOF)
-      cur = cur->next = make_token(",", tok, NULL);
+      cur = cur->next = make_token(",", arg, NULL);
     it = it->format_spec.next;
   }
-  cur->next = tok;
+  cur->next = new_eof(arg);
   return head.next;
 }
 
@@ -2014,29 +2012,30 @@ static Token *format_conversions_macro(Token *start, MacroContext *ctx)
   return format_spec_any_macro(start, offsetof(FormatStringSpecifier, conversion) / sizeof(char*), ctx);
 }
 
-static Token *format_literals_macro(Token *start, MacroContext *ctx)
+static Token *format_literals_macro(Token *body, MacroContext *ctx)
 {
-  Token *tok = skip(start->next, "(");
-
-  Token *itok = tok;
-  if(itok->kind != TK_FSTR && itok->kind != TK_STR)
-    error_tok(start, "expected a string");
-
-  tok = tok->next;
-  tok = skip(tok, ")");
-
-  Token *it = itok->format_literal_next;
-
-  pop_macro_lock_until(start, tok);
+  assert(body == NULL);
   
-  if(itok->kind == TK_STR)
+  Token *rest;
+  MacroArg *marg = find_arg(&rest, make_token("str", ctx->m->params, NULL), ctx);
+  Token *arg = expand_arg(marg);
+
+  Token *it = arg->format_literal_next;
+
+  if(arg->kind == TK_STR)
   {
-     Token *cur = copy_token(itok);
-     cur->next = tok;
+     Token *cur = copy_token(arg);
+     cur->next = new_eof(arg);
      return cur;
   }
+  else if (arg->kind != TK_FSTR)
+  {
+    error_tok(arg, "expected a string");
+  }
   else if(it == NULL || it->kind == TK_EOF)
-    return tok;
+  {
+    return arg;
+  }
 
   Token head = {0};
   Token *cur = &head;
@@ -2048,10 +2047,10 @@ static Token *format_literals_macro(Token *start, MacroContext *ctx)
     cur = cur->next = make_token(quoted, it, NULL);
 
     if(it->format_literal_next && it->format_literal_next->kind != TK_EOF)
-      cur = cur->next = make_token(",", tok, NULL);
+      cur = cur->next = make_token(",", arg, NULL);
     it = it->format_literal_next;
   }
-  cur->next = tok;
+  cur->next = new_eof(arg);
   return head.next;
 }
 
@@ -2066,45 +2065,41 @@ static Token *format_get_next_interp_token(Token *cur)
   return cur;
 }
 
-static Token *format_interps_macro(Token *start, Macro *m)
+static Token *format_interps_macro(Token *body, MacroContext *ctx)
 {
-  Token *tok = skip(start->next, "(");
-  
-  Token *itok = tok;
-  if(itok->kind != TK_FSTR && itok->kind != TK_STR)
-    error_tok(start, "expected a string");
-  
-  tok = tok->next;
-  tok = skip(tok, ")");
-  
-  Token *it = itok->format_spec.next;
-  
-  pop_macro_lock_until(start, tok);
-  
-  if(itok->kind == TK_STR)
+  assert(body == NULL);
+
+  Token *rest;
+  MacroArg *marg = find_arg(&rest, make_token("str", ctx->m->params, NULL), ctx);
+  Token *arg = expand_arg(marg);
+
+  Token *itok = arg->format_spec.next;
+
+  if(arg->kind == TK_STR)
   {
-    Token *cur = copy_token(itok);
-    cur->next = tok;
+    Token *cur = new_eof(arg);
     return cur;
   }
-  else if(it == NULL || it->kind == TK_EOF)
-    return tok;
+  else if (arg->kind != TK_FSTR)
+  {
+    error_tok(arg, "expected a string");
+  }
 
-  it = format_get_next_interp_token(it);
+  Token *it = format_get_next_interp_token(itok);
 
   Token head = {0};
   Token *cur = &head;
   Token *next = it ? format_get_next_interp_token(it->format_spec.next) : NULL;
   while(it && it->kind != TK_EOF)
   {
-    cur = cur->next = make_token("(", tok, NULL);
+    cur = cur->next = make_token("(", arg, NULL);
     for(Token *t = it->format_spec.data.interp; t->kind != TK_EOF; t = t->next)
       cur = cur->next = copy_token(t);
-    cur = cur->next = make_token(")", tok, NULL);
+    cur = cur->next = make_token(")", arg, NULL);
 
     if(next && next->kind != TK_EOF)
     {
-      cur = cur->next = make_token(",", tok, NULL);
+      cur = cur->next = make_token(",", arg, NULL);
       it = next;
       next = format_get_next_interp_token(it->format_spec.next);
     }
@@ -2113,7 +2108,7 @@ static Token *format_interps_macro(Token *start, Macro *m)
       it = next;
     }
   }
-  cur->next = tok;
+  cur->next = new_eof(arg);
   return head.next;
 }
 
@@ -2169,13 +2164,13 @@ void init_macros(void) {
   add_builtin("__has_include_next", has_include_next_macro, true);
   add_builtin("__has_embed", has_embed_macro, true);
 
-  add_funclike_builtin("__FORMAT_LITERALS__", tokenize(new_file("<built-in>", "(str)"), NULL, NULL), format_literals_macro, true);
-  add_funclike_builtin("__FORMAT_FLAGS__", tokenize(new_file("<built-in>", "(str)"), NULL, NULL), format_flags_macro, true);
-  add_funclike_builtin("__FORMAT_WIDTHS__", tokenize(new_file("<built-in>", "(str)"), NULL, NULL), format_widths_macro, true);
-  add_funclike_builtin("__FORMAT_PRECISIONS__", tokenize(new_file("<built-in>", "(str)"), NULL, NULL), format_precisions_macro, true);
-  add_funclike_builtin("__FORMAT_LENGTH_MODIFIERS__", tokenize(new_file("<built-in>", "(str)"), NULL, NULL), format_length_modifiers_macro, true);
-  add_funclike_builtin("__FORMAT_CONVERSIONS__", tokenize(new_file("<built-in>", "(str)"), NULL, NULL), format_conversions_macro, true);
-  add_funclike_builtin("__FORMAT_INTERPS__", tokenize(new_file("<built-in>", "(str)"), NULL, NULL), format_interps_macro, true);
+  add_funclike_builtin("__FORMAT_LITERALS__", tokenize(new_file("<built-in>", "str)"), NULL, NULL), format_literals_macro, true);
+  add_funclike_builtin("__FORMAT_FLAGS__", tokenize(new_file("<built-in>", "str)"), NULL, NULL), format_flags_macro, true);
+  add_funclike_builtin("__FORMAT_WIDTHS__", tokenize(new_file("<built-in>", "str)"), NULL, NULL), format_widths_macro, true);
+  add_funclike_builtin("__FORMAT_PRECISIONS__", tokenize(new_file("<built-in>", "str)"), NULL, NULL), format_precisions_macro, true);
+  add_funclike_builtin("__FORMAT_LENGTH_MODIFIERS__", tokenize(new_file("<built-in>", "str)"), NULL, NULL), format_length_modifiers_macro, true);
+  add_funclike_builtin("__FORMAT_CONVERSIONS__", tokenize(new_file("<built-in>", "str)"), NULL, NULL), format_conversions_macro, true);
+  add_funclike_builtin("__FORMAT_INTERPS__", tokenize(new_file("<built-in>", "str)"), NULL, NULL), format_interps_macro, true);
 }
 
 void dump_defines(FILE *out) {

@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "slimcc.h"
 #include <ctype.h>
 #include <string.h>
@@ -834,6 +835,7 @@ static Token *read_format_string_literal(const char *start, Type *ty)
   Token *specs    = &specs_start;
 
   const char *it = start + 2;
+  const char *prev = it;
 
   bool save_at_bol = at_bol;
   bool save_has_space = has_space;
@@ -848,19 +850,15 @@ static Token *read_format_string_literal(const char *start, Type *ty)
 
       if (specifier[1] == '%')
       {
-        // TODO this makes it so: f"hello %% world" -> "hello %", " world"
-        // not what we want
-        // issue is we're reading the string literal from the source and split it like that...
-        // each literal should be its own allocation so i can modify it.
-        literals = literals->format_literal_next = read_string_literal_given_end(it - 1, it - 1, specifier + 1, ty);
         it = specifier + 2;
         continue;
       }
 
-      literals = literals->format_literal_next = read_string_literal_given_end(it - 1, it - 1, specifier, ty);
+      literals = literals->format_literal_next = read_string_literal_given_end(prev - 1, prev - 1, specifier, ty);
       literals->next = new_token(TK_EOF, literals->loc + literals->len, literals->loc + literals->len);
 
-      it += literals->len - 2;
+
+      it = specifier;
       assert(*it == '%');
 
       FormatStringSpecifier format_data = {};
@@ -868,21 +866,43 @@ static Token *read_format_string_literal(const char *start, Type *ty)
 
       specs = specs->format_spec.next = read_string_literal_given_end(it, it, after_opts, ty_pchar);
       specs->format_spec.data = format_data;
-      
+
       specs->next = new_token(TK_EOF, literals->loc + literals->len, literals->loc + literals->len);
       it = after_opts;
+      prev = it;
     }
     else
     {
-      literals = literals->format_literal_next = read_string_literal(it - 1, it - 1, ty);
+      literals = literals->format_literal_next = read_string_literal(prev - 1, prev - 1, ty);
       literals->next = new_token(TK_EOF, literals->loc + literals->len, literals->loc + literals->len);
+
+      prev = it;
       break;
     }
   }
+
+  const char *token_end = literals->loc + literals->len;
+
+  Token *lit = literals_start.format_literal_next;
+  while (lit)
+  {
+    lit->loc = strndup(lit->loc, lit->len);
+    char *percent2;
+    int n = 0;
+    while ((percent2 = memmem(lit->loc + 1 + n, lit->len - 2 - n, "%%", 2)))
+    {
+      memmove(percent2 + 1, percent2 + 2, strlen(lit->loc) - ((percent2 + 2) - lit->loc));
+      lit->len -= 1;
+      ((char*)lit->loc)[lit->len] = '\0';
+      n++;
+    }
+    lit = lit->format_literal_next;
+  }
+
   at_bol = save_at_bol;
   has_space = save_has_space;
 
-  Token *tok = new_token(TK_FSTR, start, literals->loc + literals->len);
+  Token *tok = new_token(TK_FSTR, start, token_end);
   tok->format_literal_next = literals_start.format_literal_next;
   tok->format_spec.next = specs_start.format_spec.next;
   return tok;
