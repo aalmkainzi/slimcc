@@ -1955,7 +1955,7 @@ static Token *has_extension_macro(Token *start) {
   return new_bool_int_token(has_it, start, tok);
 }
 
-static Token *format_spec_any_macro(Token *body, int index, MacroContext *ctx)
+static Token *format_spec_any_macro(Token *body, int index, MacroContext *ctx, bool charlit)
 {
   assert(body == NULL);
 
@@ -1976,7 +1976,13 @@ static Token *format_spec_any_macro(Token *body, int index, MacroContext *ctx)
   while(it && it->kind != TK_EOF)
   {
     char *spec_part = it->format_spec.data.spec_parts[index];
-    
+
+    if (charlit)
+    {
+      spec_part = strdup(spec_part);
+      spec_part[0] = spec_part[strlen(spec_part - 1)] = '\'';
+    }
+
     cur = cur->next = make_token(spec_part, it, NULL);
     
     if(it->format_spec.next && it->format_spec.next->kind != TK_EOF)
@@ -1989,27 +1995,32 @@ static Token *format_spec_any_macro(Token *body, int index, MacroContext *ctx)
 
 static Token *format_flags_macro(Token *start, MacroContext *ctx)
 {
-  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, flags) / sizeof(char*), ctx);
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, flags) / sizeof(char*), ctx, false);
 }
 
 static Token *format_widths_macro(Token *start, MacroContext *ctx)
 {
-  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, width) / sizeof(char*), ctx);
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, width) / sizeof(char*), ctx, false);
 }
 
 static Token *format_precisions_macro(Token *start, MacroContext *ctx)
 {
-  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, precision) / sizeof(char*), ctx);
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, precision) / sizeof(char*), ctx, false);
 }
 
 static Token *format_length_modifiers_macro(Token *start, MacroContext *ctx)
 {
-  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, length_modifier) / sizeof(char*), ctx);
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, length_modifier) / sizeof(char*), ctx, false);
 }
 
 static Token *format_conversions_macro(Token *start, MacroContext *ctx)
 {
-  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, conversion) / sizeof(char*), ctx);
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, conversion) / sizeof(char*), ctx, false);
+}
+
+static Token *format_conversion_chars_macro(Token *start, MacroContext *ctx)
+{
+  return format_spec_any_macro(start, offsetof(FormatStringSpecifier, conversion) / sizeof(char*), ctx, true);
 }
 
 static Token *format_literals_macro(Token *body, MacroContext *ctx)
@@ -2170,6 +2181,7 @@ void init_macros(void) {
   add_funclike_builtin("__FORMAT_PRECISIONS__", tokenize(new_file("<built-in>", "str)"), NULL, NULL), format_precisions_macro, true);
   add_funclike_builtin("__FORMAT_LENGTH_MODIFIERS__", tokenize(new_file("<built-in>", "str)"), NULL, NULL), format_length_modifiers_macro, true);
   add_funclike_builtin("__FORMAT_CONVERSIONS__", tokenize(new_file("<built-in>", "str)"), NULL, NULL), format_conversions_macro, true);
+  add_funclike_builtin("__FORMAT_CONVERSION_CHARS__", tokenize(new_file("<built-in>", "str)"), NULL, NULL), format_conversion_chars_macro, true);
   add_funclike_builtin("__FORMAT_INTERPS__", tokenize(new_file("<built-in>", "str)"), NULL, NULL), format_interps_macro, true);
 }
 
