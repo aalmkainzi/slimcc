@@ -673,8 +673,8 @@ static char *skip_formatting(const char *f, FormatStringSpecifier *spec) {
           flags_cap *= 2;
           spec->flags = realloc(spec->flags, flags_cap);
         }
-        spec->flags[flags_len] = c;
-        flags_len += 1;
+        sprintf(spec->flags + flags_len, "\\%03o", c);
+        flags_len += 4;
       }
       f = next;
       c = peek_format_string(f, &next);
@@ -814,8 +814,8 @@ static char *skip_formatting(const char *f, FormatStringSpecifier *spec) {
   default: spec->length_modifier = strdup("\"\"");
   }
 
-  spec->conversion = calloc(4, 1);
-  sprintf(spec->conversion, "\"%c\"", (char)c);
+  spec->conversion = calloc(5, 1);
+  sprintf(spec->conversion, "\"\\%03o\"", (char)c);
 
   f = next;
   return (char *)f;
