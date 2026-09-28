@@ -814,11 +814,17 @@ static char *skip_formatting(const char *f, FormatStringSpecifier *spec) {
   default: spec->length_modifier = strdup("\"\"");
   }
 
-  spec->conversion = calloc(5, 1);
+  spec->conversion = calloc(8, 1);
   sprintf(spec->conversion, "\"\\%03o\"", (char)c);
 
   f = next;
   return (char *)f;
+}
+
+static Token *copy_helper_token(Token *tok)
+{
+  Token *ret = calloc(1, sizeof(Token));
+  *ret = *tok;
 }
 
 static Token *read_format_string_literal(const char *start, Type *ty)
@@ -854,7 +860,7 @@ static Token *read_format_string_literal(const char *start, Type *ty)
         continue;
       }
 
-      literals = literals->format_literal_next = read_string_literal_given_end(prev - 1, prev - 1, specifier, ty);
+      literals = literals->format_literal_next = copy_helper_token(read_string_literal_given_end(prev - 1, prev - 1, specifier, ty));
       literals->next = new_token(TK_EOF, literals->loc + literals->len, literals->loc + literals->len);
 
 
@@ -864,7 +870,7 @@ static Token *read_format_string_literal(const char *start, Type *ty)
       FormatStringSpecifier format_data = {};
       char *after_opts = skip_formatting(it + 1, &format_data);
 
-      specs = specs->format_spec.next = read_string_literal_given_end(it, it, after_opts, ty_pchar);
+      specs = specs->format_spec.next = copy_helper_token(read_string_literal_given_end(it, it, after_opts, ty_pchar));
       specs->format_spec.data = format_data;
 
       specs->next = new_token(TK_EOF, literals->loc + literals->len, literals->loc + literals->len);
@@ -873,7 +879,7 @@ static Token *read_format_string_literal(const char *start, Type *ty)
     }
     else
     {
-      literals = literals->format_literal_next = read_string_literal(prev - 1, prev - 1, ty);
+      literals = literals->format_literal_next = copy_helper_token(read_string_literal(prev - 1, prev - 1, ty));
       literals->next = new_token(TK_EOF, literals->loc + literals->len, literals->loc + literals->len);
 
       prev = it;

@@ -1984,9 +1984,13 @@ static Token *format_spec_any_macro(Token *body, int index, MacroContext *ctx, b
     }
 
     cur = cur->next = make_token(spec_part, it, NULL);
-    
+    cur->is_root = true;
+
     if(it->format_spec.next && it->format_spec.next->kind != TK_EOF)
+    {
       cur = cur->next = make_token(",", arg, NULL);
+      cur->is_root = true;
+    }
     it = it->format_spec.next;
   }
   cur->next = new_eof(arg);
@@ -2056,9 +2060,13 @@ static Token *format_literals_macro(Token *body, MacroContext *ctx)
     quoted[0] = quoted[it->len - 1] = '"';
 
     cur = cur->next = make_token(quoted, it, NULL);
+    cur->is_root = true;
 
     if(it->format_literal_next && it->format_literal_next->kind != TK_EOF)
+    {
       cur = cur->next = make_token(",", arg, NULL);
+      cur->is_root = true;
+    }
     it = it->format_literal_next;
   }
   cur->next = new_eof(arg);
