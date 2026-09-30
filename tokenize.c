@@ -762,11 +762,11 @@ static char *skip_formatting(const char *f, FormatStringSpecifier *spec) {
   } break;
 
   case 'w': {
-    bool fast_t = false;
+    bool is_fast = false;
     f = next;
     c = peek_format_string(f, &next);
     if (c == 'f') {
-      fast_t = true;
+      is_fast = true;
       f = next;
       c = peek_format_string(f, &next);
     }
@@ -776,7 +776,7 @@ static char *skip_formatting(const char *f, FormatStringSpecifier *spec) {
       error_at(f, "invalid format length modifier");
     c = skip_integer_in_string_literal(&f, &next, c, &w_width);
     spec->length_modifier = calloc(1, 16);
-    if (fast_t)
+    if (is_fast)
       sprintf(spec->length_modifier, "\"wf%d\"", w_width);
     else
       sprintf(spec->length_modifier, "\"w%d\"", w_width);

@@ -1980,7 +1980,7 @@ static Token *format_spec_any_macro(Token *body, int index, MacroContext *ctx, b
     if (charlit)
     {
       spec_part = strdup(spec_part);
-      spec_part[0] = spec_part[strlen(spec_part - 1)] = '\'';
+      spec_part[0] = spec_part[strlen(spec_part) - 1] = '\'';
     }
 
     cur = cur->next = make_token(spec_part, it, NULL);
